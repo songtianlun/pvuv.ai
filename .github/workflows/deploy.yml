@@ -1,0 +1,65 @@
+# Deploys to Cloudflare on every push to `my` (DEPLOY.md, "Automatic deployment").
+#
+# Secrets (repo settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN  required
+#   CONFIG_LOCAL_TOML     optional: contents of config.local.toml. Without it the
+#                         build falls back to config.example.toml.
+#
+# Worker secrets (HMAC_KEY, ...) stay in Cloudflare and are not touched here.
+
+name: Deploy
+
+on:
+  push:
+    branches: [my]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+# Never run two deploys at once, and never cancel one halfway through a
+# migration: a newer push waits for the running deploy to finish.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CONFIG_LOCAL_TOML: ${{ secrets.CONFIG_LOCAL_TOML }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Must exist before `npm ci`: postinstall generates shared/config.gen.ts from it.
+      - name: Restore private scoring config
+        if: env.CONFIG_LOCAL_TOML != ''
+        run: printf '%s' "$CONFIG_LOCAL_TOML" > config.local.toml
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # f.js is gitignored: without this the console deploy drops it from the
+      # assets and every embedded tracker 404s.
+      - name: Build SDK into the console assets
+        run: |
+          npm run build:sdk
+          cp sdk/dist/f.js workers/console/public/f.js
+
+      # Before the deploy, so new code never runs against the old schema.
+      - name: Apply D1 migrations
+        run: npm run db:migrate:remote
+
+      - name: Deploy Workers
+        run: npm run deploy:all

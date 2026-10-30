@@ -619,8 +619,8 @@ curl "http://localhost:8791/__scheduled?cron=5+*+*+*+*"
 | `CONFIG_LOCAL_TOML` | 调过参数时需要 | `config.local.toml` 的完整内容。不设置时，构建会静默使用 `config.example.toml` |
 
 在 **My Profile → API Tokens** 创建令牌：从 *Edit Cloudflare Workers* 模板开始，再添加
-**Account → D1 → Edit**。保留模板里的 Workers KV、Workers Scripts（含 Queues 相关）和
-Workers Routes 权限，区域要包含你的自定义域名所在的 zone，并加上 **Zone → DNS → Edit**。
+**Account → D1 → Edit** 和 **Account → Queues → Edit**。区域要包含你的自定义域名所在的
+zone，并加上 **Zone → DNS → Edit**。
 
 Worker 密钥（`HMAC_KEY` 等）保存在 Cloudflare，工作流不会读取或修改。`home.html` 被
 gitignore 了，除非在私有 fork 中提交它，否则自动部署会丢掉自定义首页。

@@ -695,10 +695,9 @@ Add these under **Settings → Secrets and variables → Actions**:
 | `CONFIG_LOCAL_TOML` | if you tuned it | The full contents of `config.local.toml`. Without it, the build silently uses `config.example.toml` |
 
 Create the token at **My Profile → API Tokens**, starting from the *Edit
-Cloudflare Workers* template, then add **Account → D1 → Edit**. Keep the
-template's Workers KV, Queues-related Workers Scripts and Workers Routes
-access, and include the zones that hold your custom domains, with **Zone → DNS
-→ Edit**.
+Cloudflare Workers* template, then add **Account → D1 → Edit** and **Account →
+Queues → Edit**. Include the zones that hold your custom domains, and add
+**Zone → DNS → Edit**.
 
 Worker secrets (`HMAC_KEY` and so on) stay in Cloudflare; the workflow doesn't
 read or change them. `home.html` is gitignored, so a custom homepage is dropped
