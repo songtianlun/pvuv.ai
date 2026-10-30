@@ -243,6 +243,13 @@ CREATE TABLE funnels (
 );
 CREATE INDEX idx_funnels_site ON funnels(site_id, updated_at);
 
+-- site ids awaiting the cron data purge after deletion (migration 0021)
+CREATE TABLE deleted_sites (
+  site_id    TEXT PRIMARY KEY,
+  owner_id   TEXT NOT NULL,
+  deleted_at INTEGER NOT NULL
+);
+
 CREATE TABLE ai_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   site_id TEXT, period TEXT, kind TEXT,
