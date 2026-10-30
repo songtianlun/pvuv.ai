@@ -70,7 +70,9 @@ workers.
 
 **Safe to re-run.** Existing resources are reused, and a file that is already
 configured is reported and left alone — so a partial or failed run is resumed by
-running it again, and an existing deployment can't be repointed by accident.
+running it again, and an existing deployment can't be repointed by accident. An
+`HMAC_KEY` already on the workers is kept; pass `--rotate-hmac` to replace it,
+which signs everyone out and invalidates existing signed cookies.
 
 Non-interactive:
 
@@ -213,9 +215,7 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET -c workers/console/wrangler.toml
 ## 8. Build and host the SDK
 
 ```bash
-npm run build:sdk                                   # → sdk/dist/f.js (~6.5 KB gzipped)
-cp sdk/dist/f.js workers/console/public/f.js
-npm run deploy:console
+npm run deploy:console   # builds f.js (~6.5 KB gzipped) into the console assets first
 ```
 
 `f.js` is now served at `https://example.com/f.js`.
@@ -709,8 +709,7 @@ by automatic deploys unless you commit it in a private fork.
 git pull
 npm install                   # regenerates config.gen.ts from your config
 npm run db:migrate:remote     # applies any new migrations (no-op otherwise)
-npm run build:sdk && cp sdk/dist/f.js workers/console/public/f.js
-npm run deploy:all            # ingest + consumer + api + console + cron
+npm run deploy:all            # ingest + consumer + api + console (rebuilds f.js) + cron
 npm run deploy:proxy          # ONLY if you use the first-party reverse proxy
 ```
 

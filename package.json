@@ -20,6 +20,7 @@
     "deploy:ingest": "wrangler deploy -c workers/ingest/wrangler.toml",
     "deploy:consumer": "wrangler deploy -c workers/consumer/wrangler.toml",
     "deploy:api": "wrangler deploy -c workers/api/wrangler.toml",
+    "predeploy:console": "npm run build:sdk",
     "deploy:console": "wrangler deploy -c workers/console/wrangler.toml",
     "deploy:cron": "wrangler deploy -c workers/cron/wrangler.toml",
     "deploy:all": "npm run deploy:ingest && npm run deploy:consumer && npm run deploy:api && npm run deploy:console && npm run deploy:cron",

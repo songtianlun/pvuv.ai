@@ -64,7 +64,8 @@ npm run setup            # 建议先加 --dry-run 预览将要执行的每条命
 数据库迁移;构建并拷贝 SDK;部署全部 5 个 worker。
 
 **可以重复运行。** 已存在的资源会复用,已配置好的文件会被报告并跳过——所以中途
-失败只需再跑一次即可继续,也不会误改一个正在运行的部署。
+失败只需再跑一次即可继续,也不会误改一个正在运行的部署。worker 上已有的 `HMAC_KEY`
+会保留;加 `--rotate-hmac` 才会替换,替换后所有人都要重新登录,已签名的 cookie 也会失效。
 
 非交互方式:
 
@@ -198,9 +199,7 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET -c workers/console/wrangler.toml
 ## 8. 构建并托管 SDK
 
 ```bash
-npm run build:sdk                                   # → sdk/dist/f.js（gzip 后约 6.5 KB）
-cp sdk/dist/f.js workers/console/public/f.js
-npm run deploy:console
+npm run deploy:console   # 会先把 f.js（gzip 后约 6.5 KB）构建进 console 资源
 ```
 
 现在 `f.js` 在 `https://example.com/f.js` 可访问。
@@ -631,8 +630,7 @@ gitignore 了，除非在私有 fork 中提交它，否则自动部署会丢掉�
 git pull
 npm install                   # 从你的 config 重新生成 config.gen.ts
 npm run db:migrate:remote     # 应用新迁移（没有就是空操作）
-npm run build:sdk && cp sdk/dist/f.js workers/console/public/f.js
-npm run deploy:all            # ingest + consumer + api + console + cron
+npm run deploy:all            # ingest + consumer + api + console（会重建 f.js）+ cron
 npm run deploy:proxy          # 仅当你用了第一方反代
 ```
 

@@ -21,7 +21,8 @@
  *   - **--dry-run** prints every command and file edit without executing any of
  *     them, so the whole plan can be reviewed first.
  *   - The generated HMAC_KEY is piped straight into `wrangler secret put` and is
- *     never printed, logged, or written to a file.
+ *     never printed, logged, or written to a file. A key already in place is
+ *     kept, because replacing it signs everyone out; --rotate-hmac replaces it.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -35,7 +36,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // `npm run setup --dry-run` (no `--`) never reaches argv: npm keeps the flag and
 // exports it as npm_config_dry_run. Honour both, or that spelling runs for real.
 const DRY = process.argv.includes('--dry-run') || process.env.npm_config_dry_run === 'true';
+const ROTATE_HMAC = process.argv.includes('--rotate-hmac') || process.env.npm_config_rotate_hmac === 'true';
 const WORKERS = ['ingest', 'consumer', 'api', 'console', 'cron'];
+const HMAC_WORKERS = ['ingest', 'api', 'console'];
 const TOMLS = ['wrangler.toml', ...WORKERS.map((w) => `workers/${w}/wrangler.toml`)];
 
 /** `--flag value` or `--flag=value` from argv. */
@@ -54,14 +57,14 @@ const ok = (s) => say(`  ${c.g('✓')} ${s}`);
 const warn = (s) => say(`  ${c.y('!')} ${s}`);
 const info = (s) => say(`  ${c.dim(s)}`);
 
-/** Run a command. Returns {code, out}. Never throws — callers decide. */
+/** Run a command. Returns {code, out, stdout}. Never throws — callers decide. */
 function run(cmd, args, { input, quiet = true } = {}) {
-  if (DRY) { say(`  ${c.dim('$ ' + [cmd, ...args].join(' '))}`); return { code: 0, out: '' }; }
+  if (DRY) { say(`  ${c.dim('$ ' + [cmd, ...args].join(' '))}`); return { code: 0, out: '', stdout: '' }; }
   const r = spawnSync(cmd, args, {
     cwd: ROOT, input, encoding: 'utf8',
     stdio: ['pipe', 'pipe', quiet ? 'pipe' : 'inherit'],
   });
-  return { code: r.status ?? 1, out: (r.stdout || '') + (r.stderr || '') };
+  return { code: r.status ?? 1, out: (r.stdout || '') + (r.stderr || ''), stdout: r.stdout || '' };
 }
 const wrangler = (args, opts) => run('npx', ['--yes', 'wrangler', ...args], opts);
 
@@ -249,7 +252,6 @@ async function main() {
   // ---- 5. SDK ------------------------------------------------------------
   step(5, 'Building the SDK');
   if (run('npm', ['run', 'build:sdk']).code !== 0) { say(c.r('  SDK build failed.')); process.exit(1); }
-  if (!DRY) copyFileSync(path.join(ROOT, 'sdk/dist/f.js'), path.join(ROOT, 'workers/console/public/f.js'));
   ok('f.js built and copied into the console assets');
 
   // ---- 6. deploy ---------------------------------------------------------
@@ -279,11 +281,27 @@ async function main() {
   // One key for ingest/api/console: the console signs session cookies the api
   // verifies, and ingest signs the verdict cookie. Generated here and piped
   // straight to wrangler — it is never shown or stored on disk.
-  const hmac = randomBytes(32).toString('base64');
-  for (const w of ['ingest', 'api', 'console']) {
-    const r = wrangler(['secret', 'put', 'HMAC_KEY', '-c', `workers/${w}/wrangler.toml`], { input: hmac + '\n' });
-    if (r.code !== 0) { say(c.r(`  Could not set HMAC_KEY on ${w}.`)); info(r.out.trim().split('\n').slice(-3).join('\n  ')); process.exit(1); }
-    ok(`HMAC_KEY set on ${w}`);
+  // Cloudflare can't return a secret's value, so a key already in place can only
+  // be kept or replaced. Replacing it invalidates every signed cookie, and adding
+  // a new one beside it leaves the workers disagreeing, so neither happens unasked.
+  const missing = ROTATE_HMAC ? HMAC_WORKERS : HMAC_WORKERS.filter((w) => !hasSecret(w, 'HMAC_KEY'));
+  if (!ROTATE_HMAC && missing.length > 0 && missing.length < HMAC_WORKERS.length) {
+    say(c.r(`  HMAC_KEY is missing on ${missing.join(', ')} but set on the other workers.`));
+    info('The three workers must share one key, and the existing one cannot be read back.');
+    info('Re-run with --rotate-hmac to replace it everywhere (this signs everyone out).');
+    process.exit(1);
+  }
+  if (missing.length === 0) {
+    ok('HMAC_KEY already set on all three workers — kept (--rotate-hmac replaces it)');
+  } else {
+    if (ROTATE_HMAC) warn('Replacing HMAC_KEY — existing sessions and signed cookies stop working.');
+    if (DRY && !ROTATE_HMAC) info('(only runs if the checks above find no HMAC_KEY)');
+    const hmac = randomBytes(32).toString('base64');
+    for (const w of missing) {
+      const r = wrangler(['secret', 'put', 'HMAC_KEY', '-c', `workers/${w}/wrangler.toml`], { input: hmac + '\n' });
+      if (r.code !== 0) { say(c.r(`  Could not set HMAC_KEY on ${w}.`)); info(r.out.trim().split('\n').slice(-3).join('\n  ')); process.exit(1); }
+      ok(`HMAC_KEY set on ${w}`);
+    }
   }
 
   // ---- done --------------------------------------------------------------
@@ -306,6 +324,18 @@ async function main() {
   info(`nightly job count what the tracking script cannot see (AI crawlers and`);
   info(`scrapers fetch HTML without ever running JS). DEPLOY.md → "Cloudflare`);
   info(`edge requests". Skip it and everything works exactly the same.\n`);
+}
+
+/** Whether a worker has a secret. Exits when it can't tell: guessing "no" would overwrite the key. */
+function hasSecret(worker, name) {
+  const r = wrangler(['secret', 'list', '-c', `workers/${worker}/wrangler.toml`]);
+  if (DRY) return false;
+  try {
+    if (r.code === 0) return JSON.parse(r.stdout.slice(r.stdout.indexOf('['))).some((s) => s.name === name);
+  } catch { /* fall through to the message below */ }
+  say(c.r(`  Could not list the secrets on ${worker}, so ${name} was left untouched.`));
+  info(r.out.trim().split('\n').slice(-3).join('\n  '));
+  process.exit(1);
 }
 
 function findD1Id(name) {
