@@ -10,6 +10,7 @@
  *   GET  /api/sites
  *   POST /api/sites            {name, domains[], adguard_mode?, adclient?}
  *   POST /api/sites/:id/domains {domains[]}
+ *   DELETE /api/sites/:id      {confirm: <site name>}
  *   GET  /api/sites/:id/(overview|timeseries|breakdown|quality|traffic)
  *   GET  /api/sites/:id/visitors/:vid/profile
  *
@@ -612,6 +613,35 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
       return json({ sites: rows.results });
     }
     if (request.method === 'POST') return createSite(request, env, user);
+  }
+
+  // site deletion: the sites row goes now (owner checks, ingest, public link
+  // and API all stop seeing the site), together with the small per-site
+  // tables and any token scoped to it. The bulk data — events, sessions,
+  // profiles, rollups — is left to the cron purge via deleted_sites, since it
+  // can be far more than one request may delete. The body must repeat the
+  // site name so a stray DELETE can't wipe a site.
+  const delMatch = path.match(/^\/api\/sites\/([A-Za-z0-9]{4,16})$/);
+  if (delMatch && request.method === 'DELETE') {
+    const siteId = delMatch[1];
+    const site = await env.DB.prepare('SELECT owner_id, name FROM sites WHERE site_id = ?')
+      .bind(siteId).first<{ owner_id: string; name: string }>();
+    if (!site || site.owner_id !== user) throw new ApiError(403, 'not your site');
+    let body: { confirm?: string };
+    try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+    if ((body.confirm ?? '').trim() !== site.name.trim()) return json({ error: 'confirmation does not match the site name' }, 400);
+    const now = Date.now();
+    await env.DB.batch([
+      env.DB.prepare('INSERT OR REPLACE INTO deleted_sites (site_id, owner_id, deleted_at) VALUES (?, ?, ?)').bind(siteId, user, now),
+      env.DB.prepare('UPDATE api_tokens SET revoked_at = ? WHERE site_id = ? AND revoked_at IS NULL').bind(now, siteId),
+      env.DB.prepare('DELETE FROM funnels WHERE site_id = ?').bind(siteId),
+      env.DB.prepare('DELETE FROM ai_reports WHERE site_id = ?').bind(siteId),
+      env.DB.prepare('DELETE FROM anomaly_reports WHERE site_id = ?').bind(siteId),
+      env.DB.prepare('DELETE FROM cluster_flags WHERE site_id = ?').bind(siteId),
+      env.DB.prepare('DELETE FROM sites WHERE site_id = ?').bind(siteId),
+    ]);
+    await env.SITE_CONFIG.delete(`site:${siteId}`); // ingest re-reads D1, finds nothing, rejects
+    return json({ ok: true });
   }
 
   // public-dashboard sharing: enable mints a fresh random token (also rotates

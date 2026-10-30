@@ -15,6 +15,10 @@
  *                         On bot-heavy sites they are most of the table, so
  *                         they go after bot_events_days.
  *   4. sessions / idle profiles — not partitioned; deleted by age.
+ *   5. deleted sites    — every row of a site removed from the console
+ *                         (deleted_sites tombstones), across all per-site
+ *                         tables; the tombstone goes once a pass finds
+ *                         nothing left and the grace period has passed.
  *
  * Window sizes come from CONFIG.retention (§21 — nothing hardcoded here).
  * 0 / negative / missing means "keep forever" for that pass.
@@ -31,6 +35,16 @@ import { existingEventTables } from './rollup';
 const DAY_MS = 86_400_000;
 const BATCH = 5000;           // rows per DELETE
 const MAX_BATCHES = 40;       // per table per pass per run (≈200k rows)
+/** Events still queued when a site is deleted can land shortly after; keep
+ *  the tombstone at least this long so a later pass sweeps them up too. */
+const DELETED_GRACE_MS = DAY_MS;
+/** Non-partitioned tables keyed by site_id (all indexed on it). */
+const SITE_TABLES = [
+  'sessions', 'identities', 'visitor_profiles',
+  'rollup_page_daily', 'rollup_source_daily', 'rollup_site_daily',
+  'rollup_edge_daily', 'rollup_edge_agent_daily',
+  'funnels', 'ai_reports', 'anomaly_reports', 'cluster_flags',
+] as const;
 
 export interface RetentionSummary {
   raw_events_days: number; pulse_events_days: number; bot_events_days: number; profiles_idle_days: number;
@@ -39,6 +53,9 @@ export interface RetentionSummary {
   bot_rows_deleted: number;
   sessions_deleted: number;
   profiles_deleted: number;
+  deleted_site_rows: number;
+  /** tombstones cleared: those sites are now fully purged */
+  deleted_sites_done: string[];
   /** a row-trim pass hit its batch cap and will continue next run */
   more_pending: boolean;
   errors: string[];
@@ -76,7 +93,8 @@ export async function runRetentionPurge(env: { DB: D1Database }, now = Date.now(
     bot_events_days: windowDays('bot_events_days'),
     profiles_idle_days: windowDays('profiles_idle_days'),
     dropped_partitions: [], pulse_rows_deleted: 0, bot_rows_deleted: 0,
-    sessions_deleted: 0, profiles_deleted: 0, more_pending: false, errors: [],
+    sessions_deleted: 0, profiles_deleted: 0, deleted_site_rows: 0, deleted_sites_done: [],
+    more_pending: false, errors: [],
   };
   const tables = [...await existingEventTables(env.DB)].sort();
 
@@ -129,7 +147,28 @@ export async function runRetentionPurge(env: { DB: D1Database }, now = Date.now(
     } catch (err) { s.errors.push(`profiles: ${String(err)}`); }
   }
 
-  console.log(`retention: dropped ${s.dropped_partitions.length} partition(s); trimmed pulse=${s.pulse_rows_deleted} bot=${s.bot_rows_deleted} sessions=${s.sessions_deleted} profiles=${s.profiles_deleted}${s.more_pending ? ' (more pending)' : ''}${s.errors.length ? `; errors: ${s.errors.join(' | ')}` : ''}`);
+  // 5. sites deleted from the console — independent of the retention windows
+  try {
+    const gone = await env.DB.prepare('SELECT site_id, deleted_at FROM deleted_sites')
+      .all<{ site_id: string; deleted_at: number }>();
+    for (const { site_id, deleted_at } of gone.results) {
+      let n = 0, capped = false, failed = false;
+      for (const table of [...live, ...SITE_TABLES]) {
+        try {
+          const r = await trimRows(env.DB, table, 'site_id = ?', [site_id]);
+          n += r.n; if (r.capped) capped = true;
+        } catch (err) { failed = true; s.errors.push(`purge ${site_id} ${table}: ${String(err)}`); }
+      }
+      s.deleted_site_rows += n;
+      if (capped) s.more_pending = true;
+      if (!capped && !failed && n === 0 && deleted_at < now - DELETED_GRACE_MS) {
+        await env.DB.prepare('DELETE FROM deleted_sites WHERE site_id = ?').bind(site_id).run();
+        s.deleted_sites_done.push(site_id);
+      }
+    }
+  } catch (err) { s.errors.push(`deleted sites: ${String(err)}`); }
+
+  console.log(`retention: dropped ${s.dropped_partitions.length} partition(s); trimmed pulse=${s.pulse_rows_deleted} bot=${s.bot_rows_deleted} sessions=${s.sessions_deleted} profiles=${s.profiles_deleted} deleted-sites=${s.deleted_site_rows}${s.deleted_sites_done.length ? ` (done: ${s.deleted_sites_done.join(',')})` : ''}${s.more_pending ? ' (more pending)' : ''}${s.errors.length ? `; errors: ${s.errors.join(' | ')}` : ''}`);
   return s;
 }
 

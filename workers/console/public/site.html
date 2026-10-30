@@ -153,6 +153,7 @@
   <button id="shareBtn" class="btn" title="Read-only public dashboard link">🔗 <span data-i18n="Share link">Share link</span></button>
   <button id="domainsBtn" class="btn">🌐 <span data-i18n="Allowed domains">Allowed domains</span></button>
   <button id="dlBtn" class="btn" title="Download all data for the selected range as JSON">⬇ <span data-i18n="Download data">Download data</span></button>
+  <button id="deleteBtn" class="btn">🗑 <span data-i18n="Delete site">Delete site</span></button>
   </div>
 </header>
 <main>
@@ -1818,6 +1819,41 @@ function renderDomainsModal() {
   document.getElementById('modal').hidden = false;
 }
 document.getElementById('domainsBtn').addEventListener('click', renderDomainsModal);
+
+// Delete site — the name must be typed back before the button arms. The site
+// disappears at once; its stored data is purged in the background.
+function renderDeleteModal() {
+  const s = allSites.find((x) => x.site_id === site);
+  if (!s) return;
+  document.getElementById('modalTitle').textContent = t('Delete site');
+  document.getElementById('modalBody').innerHTML = `<div class="notice bad" style="margin:4px 0 12px">${esc(window.PVI18N.tk('delete-site-help', 'This permanently deletes the site and all its data — events, sessions, visitors, reports, funnels and the public link. The tracking snippet stops being accepted immediately. This cannot be undone.'))}</div>
+    <p style="margin:0 0 6px">${te('Type the site name to confirm:')} <b>${esc(s.name)}</b></p>
+    <input id="deleteConfirm" type="text" autocomplete="off" spellcheck="false" style="width:100%">
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+      <button id="deleteGo" class="btn danger" disabled>${te('Delete this site')}</button>
+      <span class="muted" id="deleteMsg" style="font-size:12px"></span>
+    </div>`;
+  const input = document.getElementById('deleteConfirm');
+  const go = document.getElementById('deleteGo');
+  input.addEventListener('input', () => { go.disabled = input.value.trim() !== s.name.trim(); });
+  go.addEventListener('click', async () => {
+    const msg = document.getElementById('deleteMsg');
+    go.disabled = true;
+    msg.textContent = t('deleting…');
+    try {
+      const r = await guard(await fetch(`/api/sites/${site}`, {
+        method: 'DELETE', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirm: input.value }),
+      }));
+      const d = await r.json();
+      if (!r.ok) { msg.textContent = d.error || t('delete failed'); go.disabled = false; return; }
+      location.href = '/sites.html';
+    } catch { msg.textContent = t('delete failed'); go.disabled = false; }
+  });
+  document.getElementById('modal').hidden = false;
+  input.focus();
+}
+document.getElementById('deleteBtn').addEventListener('click', renderDeleteModal);
 
 // Goals = custom (non-lifecycle) events; the panel hides itself when the site
 // sends none, so it never clutters sites that don't use pvuv('event', …).
