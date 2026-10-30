@@ -9,18 +9,18 @@
 name = "pvuv-ingest"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
-account_id = "PLACEHOLDER_ACCOUNT_ID"
+account_id = "209b775a76842f6f305193e41de86be1"
 
 # Custom Domain: wrangler creates the proxied DNS record and the certificate
 # itself, so no manual DNS step is needed. The worker owns this hostname.
 routes = [
-  { pattern = "in.pvuv.ai", custom_domain = true }
+  { pattern = "in.oskyla.com", custom_domain = true }
 ]
 
 # KV: blocklist lookups for /v, site-config cache for whitelist validation
 kv_namespaces = [
-  { binding = "BLOCKLIST",   id = "PLACEHOLDER_KV_BLOCKLIST_ID" },
-  { binding = "SITE_CONFIG", id = "PLACEHOLDER_KV_SITE_CONFIG_ID" }
+  { binding = "BLOCKLIST",   id = "9f96075e92b44b87a5deea74a4352b05" },
+  { binding = "SITE_CONFIG", id = "d659745e342c4b09a07122cc23411753" }
 ]
 
 # Queue producer: /in enqueues, consumer worker batch-writes to D1
@@ -32,7 +32,7 @@ queue = "pvuv-ingest"
 [[d1_databases]]
 binding = "DB"
 database_name = "pvuv-db"
-database_id = "PLACEHOLDER_D1_DATABASE_ID"
+database_id = "ec1226ba-8026-4f0a-8a7d-9b516cb2f7bf"
 
 [observability]
 enabled = true

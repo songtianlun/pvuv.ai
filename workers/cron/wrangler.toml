@@ -8,12 +8,12 @@
 name = "pvuv-cron"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
-account_id = "PLACEHOLDER_ACCOUNT_ID"
+account_id = "209b775a76842f6f305193e41de86be1"
 
 # KV: daily job writes confirmed clusters to the blocklist (M2)
 # (top-level key — must stay above the first [table] header)
 kv_namespaces = [
-  { binding = "BLOCKLIST", id = "PLACEHOLDER_KV_BLOCKLIST_ID" }
+  { binding = "BLOCKLIST", id = "9f96075e92b44b87a5deea74a4352b05" }
 ]
 
 [triggers]
@@ -25,7 +25,7 @@ crons = [
 [[d1_databases]]
 binding = "DB"
 database_name = "pvuv-db"
-database_id = "PLACEHOLDER_D1_DATABASE_ID"
+database_id = "ec1226ba-8026-4f0a-8a7d-9b516cb2f7bf"
 
 [observability]
 enabled = true

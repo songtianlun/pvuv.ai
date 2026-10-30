@@ -20,14 +20,14 @@
 
 name = "pvuv"
 compatibility_date = "2026-06-01"
-account_id = "PLACEHOLDER_ACCOUNT_ID"
+account_id = "209b775a76842f6f305193e41de86be1"
 
 # --- D1: single primary database shared by all workers ----------------------
 # Create with:  wrangler d1 create pvuv-db
 [[d1_databases]]
 binding = "DB"
 database_name = "pvuv-db"
-database_id = "PLACEHOLDER_D1_DATABASE_ID"
+database_id = "ec1226ba-8026-4f0a-8a7d-9b516cb2f7bf"
 migrations_dir = "migrations"
 
 # ----------------------------------------------------------------------------
