@@ -32,7 +32,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DRY = process.argv.includes('--dry-run');
+// `npm run setup --dry-run` (no `--`) never reaches argv: npm keeps the flag and
+// exports it as npm_config_dry_run. Honour both, or that spelling runs for real.
+const DRY = process.argv.includes('--dry-run') || process.env.npm_config_dry_run === 'true';
 const WORKERS = ['ingest', 'consumer', 'api', 'console', 'cron'];
 const TOMLS = ['wrangler.toml', ...WORKERS.map((w) => `workers/${w}/wrangler.toml`)];
 
@@ -157,6 +159,18 @@ async function main() {
 
   // ---- 2. resources ------------------------------------------------------
   step(2, 'Creating Cloudflare resources');
+  // Every wrangler call below reads the root wrangler.toml, whose account_id
+  // beats CLOUDFLARE_ACCOUNT_ID — so the real one has to be on disk before the
+  // first of them, or they all go to /accounts/PLACEHOLDER_ACCOUNT_ID.
+  for (const rel of TOMLS) {
+    const file = path.join(ROOT, rel);
+    if (!existsSync(file)) continue;
+    const before = readFileSync(file, 'utf8');
+    if (!before.includes('PLACEHOLDER_ACCOUNT_ID')) continue;
+    if (DRY) say(`  ${c.dim('~ would set account_id in ' + rel)}`);
+    else writeFileSync(file, before.split('PLACEHOLDER_ACCOUNT_ID').join(accountId));
+  }
+
   // Create-then-look-up: creation is allowed to fail (already exists) and the
   // id always comes from a list, which is stable across wrangler versions.
   wrangler(['d1', 'create', 'pvuv-db']);
@@ -166,7 +180,9 @@ async function main() {
   const kv = {};
   for (const binding of ['BLOCKLIST', 'SITE_CONFIG']) {
     const created = wrangler(['kv', 'namespace', 'create', binding]);
-    kv[binding] = created.out.match(ID_RE)?.[0] || findKvId(binding);
+    // Only trust the output of a success: a failed create (already exists) prints
+    // the request path, and the account id in it matches ID_RE too.
+    kv[binding] = (created.code === 0 && created.out.match(ID_RE)?.[0]) || findKvId(binding);
     ok(`KV ${binding} ${c.dim(kv[binding])}`);
   }
   for (const q of ['pvuv-ingest', 'pvuv-ingest-dlq']) {
@@ -178,7 +194,6 @@ async function main() {
   // ---- 3. config ---------------------------------------------------------
   step(3, 'Writing configuration');
   const subs = [
-    ['PLACEHOLDER_ACCOUNT_ID', accountId],
     ['PLACEHOLDER_D1_DATABASE_ID', d1Id],
     ['PLACEHOLDER_KV_BLOCKLIST_ID', kv.BLOCKLIST],
     ['PLACEHOLDER_KV_SITE_CONFIG_ID', kv.SITE_CONFIG],
