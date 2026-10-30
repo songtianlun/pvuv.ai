@@ -628,7 +628,7 @@ home page. See [`PROJECT_PLAN.md` §14](./PROJECT_PLAN.md).
 | Symptom | Likely cause |
 |---|---|
 | `/in` returns 500 | `HMAC_KEY` secret not set on the ingest worker |
-| `/in` returns 204 but no data | The page's `Origin` host doesn't match the site's `allowed_domains` (mismatches are dropped silently by design) — check the domains you registered; note the KV site cache refreshes within 5 minutes of a site edit |
+| `/in` returns 204 but no data | The page's `Origin` host doesn't match the site's `allowed_domains` (mismatches are dropped silently by design) — check the site's allowed domains (dashboard → 🌐 Allowed domains; `example.com` includes subdomains, `*.example.com` is subdomains only, `*` accepts any origin) |
 | `/in` returns 403 | Request has no `Origin`/`Referer` header (server-to-server calls are rejected) |
 | Cards empty, drill-down has data | Rollups run hourly at `:05` — wait for the next run |
 | Can't sign in / "not an admin" | your email isn't in `ADMIN_EMAILS`, or no OAuth provider is configured |
@@ -674,6 +674,35 @@ curl "http://localhost:8791/__scheduled?cron=5+*+*+*+*"
 ```
 
 Point a test page's snippet at `data-api="http://localhost:8788"`.
+
+## Automatic deployment (GitHub Actions)
+
+[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) deploys every
+push to the `my` branch, skipping pushes that only touch Markdown or `docs/`.
+Change `branches:` to deploy from another branch. **Actions → Deploy → Run
+workflow** starts one by hand. It runs the same steps as the manual update
+below: typecheck, build `f.js` into the console assets, apply migrations, then
+`deploy:all`. A failed typecheck or migration stops the run before any Worker
+is deployed. The proxy Worker is not included.
+
+The deploying branch must hold your real ids in the `wrangler.toml` files.
+
+Add these under **Settings → Secrets and variables → Actions**:
+
+| Secret | Required | Value |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | yes | A Cloudflare API token (below) |
+| `CONFIG_LOCAL_TOML` | if you tuned it | The full contents of `config.local.toml`. Without it, the build silently uses `config.example.toml` |
+
+Create the token at **My Profile → API Tokens**, starting from the *Edit
+Cloudflare Workers* template, then add **Account → D1 → Edit**. Keep the
+template's Workers KV, Queues-related Workers Scripts and Workers Routes
+access, and include the zones that hold your custom domains, with **Zone → DNS
+→ Edit**.
+
+Worker secrets (`HMAC_KEY` and so on) stay in Cloudflare; the workflow doesn't
+read or change them. `home.html` is gitignored, so a custom homepage is dropped
+by automatic deploys unless you commit it in a private fork.
 
 ## Updating a deployment
 

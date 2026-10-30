@@ -9,6 +9,7 @@
  *   GET  /api/me
  *   GET  /api/sites
  *   POST /api/sites            {name, domains[], adguard_mode?, adclient?}
+ *   POST /api/sites/:id/domains {domains[]}
  *   GET  /api/sites/:id/(overview|timeseries|breakdown|quality|traffic)
  *   GET  /api/sites/:id/visitors/:vid/profile
  *
@@ -31,6 +32,7 @@ import {
 } from './oauth';
 import { isValidTimezone } from '../../../shared/tz';
 import { zoneForDomains } from '../../../shared/cfedge';
+import { normalizeDomain } from '../../../shared/domains';
 import { readCfToken, verifyCfToken, CF_TOKEN_KEY, CF_STATUS_KEY } from '../../cron/src/edge';
 import { runRetentionPurge, storageReport } from '../../cron/src/retention';
 import { CONFIG } from '../../../shared/config.gen';
@@ -667,6 +669,27 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
     return json({ ok: true, adguard_mode: mode });
   }
 
+  // whitelist edit: replaces the whole list. Unlike creation, a bad entry fails
+  // the save — silently dropping it here would stop that domain's tracking.
+  // Clearing the KV entry lets ingest pick the new list up on its next read.
+  const domainsMatch = path.match(/^\/api\/sites\/([A-Za-z0-9]{4,16})\/domains$/);
+  if (domainsMatch && request.method === 'POST') {
+    const siteId = domainsMatch[1];
+    const site = await env.DB.prepare('SELECT owner_id FROM sites WHERE site_id = ?').bind(siteId).first<{ owner_id: string }>();
+    if (!site || site.owner_id !== user) throw new ApiError(403, 'not your site');
+    let body: { domains?: unknown };
+    try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+    const raw: unknown[] = Array.isArray(body.domains) ? body.domains : [];
+    if (raw.length === 0) return json({ error: 'at least one domain required' }, 400);
+    const parsed = raw.map((d) => normalizeDomain(d));
+    const invalid = raw.filter((_, i) => parsed[i] === null);
+    if (invalid.length > 0) return json({ error: `invalid domain: ${invalid.join(', ')}` }, 400);
+    const domains = [...new Set(parsed)];
+    await env.DB.prepare('UPDATE sites SET allowed_domains = ? WHERE site_id = ?').bind(JSON.stringify(domains), siteId).run();
+    await env.SITE_CONFIG.delete(`site:${siteId}`);
+    return json({ ok: true, domains });
+  }
+
   // AI report generation (§13): explicit POST action, calls the configured LLM
   // over a factual snapshot and stores the markdown in ai_reports.
   const reportMatch = path.match(/^\/api\/sites\/([A-Za-z0-9]{4,16})\/ai_report$/);
@@ -887,9 +910,7 @@ async function createSite(request: Request, env: Env, owner: string): Promise<Re
   }
 
   const name = (body.name ?? '').trim().slice(0, 100);
-  const domains = (body.domains ?? [])
-    .map((d) => String(d).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
-    .filter((d) => /^[a-z0-9.-]+$/.test(d));
+  const domains = (body.domains ?? []).map((d) => normalizeDomain(d)).filter((d): d is string => d !== null);
   if (!name || domains.length === 0) return json({ error: 'name and at least one valid domain required' }, 400);
 
   const adguardMode = ADGUARD_MODES.has(body.adguard_mode ?? '') ? body.adguard_mode! : 'off';

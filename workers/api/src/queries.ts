@@ -16,6 +16,7 @@
 import { FLAG, ALL_FLAGS, FAKE_SEARCH_MASK, searchRefDomainSql, type FlagName } from '../../../shared/flags';
 import { localYMD, localMidnightUtc, localDaySpan, addDays, weekdayMon0, dayStr, tzOffsetMs } from '../../../shared/tz';
 import { monthSuffix, RESERVED_EVENTS_SQL } from '../../../shared/events';
+import { hostOwned } from '../../../shared/domains';
 import { CONFIG } from '../../../shared/config.gen';
 
 // ---------------------------------------------------------------------------
@@ -1780,7 +1781,7 @@ export async function ranking(db: D1Database, period: Period, limit = 100, owner
     if (!source) return false;
     const h = source.toLowerCase();
     if (ownedSet.has(h)) return true;
-    for (const d of owned) if (h === d || h.endsWith('.' + d)) return true; // subdomain of an owned site
+    for (const d of owned) if (hostOwned(h, d)) return true; // subdomain of an owned site
     return false;
   };
 

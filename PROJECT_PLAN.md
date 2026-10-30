@@ -81,7 +81,7 @@ browser (f.js)
 
 Four ID layers: `site_id → visitor_id → session_id → user_id`.
 
-- **site_id**: assigned at site registration, 8-char random string. One site can bind multiple domains/subdomains (`allowed_domains` whitelist, prevents spoofing/data injection).
+- **site_id**: assigned at site registration, 8-char random string. One site can bind multiple domains/subdomains (`allowed_domains` whitelist, prevents spoofing/data injection). Entries: `example.com` (with subdomains), `*.example.com` (subdomains only), `*` (any origin, disables the protection).
 - **visitor_id**: UUID, generated on first visit. Written to a first-party cookie `_pv_id` (`domain=.example.com` to share across subdomains), backed up in localStorage. 13-month lifetime.
 - **session_id**: UUID. A new session starts on any of: 30 min inactivity / UTM change / calendar-day rollover. Stored in cookie `_pv_sid` + last-active timestamp.
 - **user_id**: bound after `identify()`. The `identities` table maintains a user↔visitor map, merging one user's multiple visitor_ids across devices/sessions.

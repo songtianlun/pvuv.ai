@@ -9,6 +9,7 @@
 
 import type { IncomingEvent, EventRow } from '../../../shared/events';
 import { classifyAsn, type AsnType } from '../../../shared/asn';
+import { hostOwned } from '../../../shared/domains';
 import { hmacSign } from '../../../shared/ids';
 import { canonicalSource } from '../../../shared/source';
 
@@ -143,16 +144,15 @@ export function refDomain(referrer: string | undefined): string | null {
 }
 
 /** True when a referrer host belongs to the measured site itself — the event
- *  page's own hostname or any whitelisted domain (exact or subdomain, the same
- *  matching rule as the ingest origin check). Internal navigation must never
+ *  page's own hostname or any whitelisted domain (same matching rule as the
+ *  ingest origin check, minus `*`). Internal navigation must never
  *  be attributed as an external traffic source: the first event of a session
  *  minted mid-visit (30-min idle / day rollover / SPA route change) carries an
  *  internal referrer, which would otherwise surface the site as its own
  *  top "source". */
 export function isInternalRef(refHost: string, pageHost: string, allowedDomains: readonly string[]): boolean {
   const h = refHost.toLowerCase();
-  const same = (d: string) => h === d || h.endsWith(`.${d}`);
-  return same(pageHost) || allowedDomains.some(same);
+  return h === pageHost || h.endsWith(`.${pageHost}`) || allowedDomains.some((d) => hostOwned(h, d));
 }
 
 // ---------------------------------------------------------------------------

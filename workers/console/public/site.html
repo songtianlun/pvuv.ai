@@ -151,6 +151,7 @@
     </optgroup>
   </select>
   <button id="shareBtn" class="btn" title="Read-only public dashboard link">🔗 <span data-i18n="Share link">Share link</span></button>
+  <button id="domainsBtn" class="btn">🌐 <span data-i18n="Allowed domains">Allowed domains</span></button>
   <button id="dlBtn" class="btn" title="Download all data for the selected range as JSON">⬇ <span data-i18n="Download data">Download data</span></button>
   </div>
 </header>
@@ -1784,6 +1785,38 @@ async function setShare(enable) {
   } catch { /* leave the modal as-is */ }
 }
 document.getElementById('shareBtn').addEventListener('click', renderShareModal);
+
+// Allowed domains — the ingest whitelist. Saving replaces the whole list.
+function renderDomainsModal() {
+  const s = allSites.find((x) => x.site_id === site);
+  if (!s) return;
+  let domains = [];
+  try { domains = JSON.parse(s.allowed_domains || '[]'); } catch { /* stored malformed → start empty */ }
+  document.getElementById('modalTitle').textContent = t('Allowed domains');
+  document.getElementById('modalBody').innerHTML = `<p style="margin:4px 0 10px">${esc(window.PVI18N.tk('domains-help', 'One per line. example.com includes its subdomains, *.example.com matches subdomains only, and * accepts any domain — anyone who copies your snippet can then send data to this site.'))}</p>
+    <textarea id="domainsInput" rows="5" spellcheck="false" style="width:100%;font:12.5px ui-monospace,monospace">${esc(domains.join('\n'))}</textarea>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+      <button id="domainsSave" class="btn primary">${te('Save')}</button>
+      <span class="muted" id="domainsMsg" style="font-size:12px"></span>
+    </div>`;
+  document.getElementById('domainsSave').addEventListener('click', async () => {
+    const msg = document.getElementById('domainsMsg');
+    msg.textContent = t('saving…');
+    try {
+      const r = await guard(await fetch(`/api/sites/${site}/domains`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ domains: document.getElementById('domainsInput').value.split(/[\s,]+/).filter(Boolean) }),
+      }));
+      const d = await r.json();
+      if (!r.ok) { msg.textContent = d.error || t('save failed'); return; }
+      s.allowed_domains = JSON.stringify(d.domains);
+      document.getElementById('domainsInput').value = d.domains.join('\n');
+      msg.textContent = t('saved, applies within a minute');
+    } catch { msg.textContent = t('save failed'); }
+  });
+  document.getElementById('modal').hidden = false;
+}
+document.getElementById('domainsBtn').addEventListener('click', renderDomainsModal);
 
 // Goals = custom (non-lifecycle) events; the panel hides itself when the site
 // sends none, so it never clutters sites that don't use pvuv('event', …).

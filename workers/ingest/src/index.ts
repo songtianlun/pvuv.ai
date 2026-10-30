@@ -10,6 +10,7 @@
 import { enrichEvent, parseUA, isChromiumUA, isHeadlessUA, hashIP, fingerprintHash, type RequestContext } from './enrich';
 import { scoreRealtime } from './score';
 import { classifyAsn } from '../../../shared/asn';
+import { hostMatches } from '../../../shared/domains';
 import { matchBot, type BotEntry } from '../../../shared/botdir';
 import { hmacSign, signVerdictState, verifyVerdictState, type VerdictState } from '../../../shared/ids';
 import type { XPayload, Verdict } from '../../../shared/flags';
@@ -422,10 +423,10 @@ async function getSiteConfig(env: Env, siteId: string): Promise<SiteConfig | nul
   return config;
 }
 
-/** Host matches an allowed domain exactly or as a subdomain (§3 multi-subdomain). */
+/** Host matches a whitelist entry (§3 multi-subdomain; forms in shared/domains). */
 export function domainAllowed(host: string, allowed: string[]): boolean {
   const h = host.toLowerCase();
-  return allowed.some((d) => h === d || h.endsWith(`.${d}`));
+  return allowed.some((d) => hostMatches(h, d));
 }
 
 // ---------------------------------------------------------------------------

@@ -555,7 +555,7 @@ curl -H "Authorization: Bearer $API_TOKEN" \
 | 现象 | 大概率原因 |
 |---|---|
 | `/in` 返回 500 | ingest 的 `HMAC_KEY` 密钥没设置 |
-| `/in` 返回 204 但没数据 | 页面 `Origin` 与站点 `allowed_domains` 不匹配（按设计静默丢弃）——检查注册的域名；站点信息修改后 KV 缓存最多 5 分钟刷新 |
+| `/in` 返回 204 但没数据 | 页面 `Origin` 与站点 `allowed_domains` 不匹配（按设计静默丢弃）——到站点仪表盘的「🌐 允许的域名」检查（`example.com` 含子域名，`*.example.com` 仅子域名，`*` 接受任意来源） |
 | `/in` 返回 403 | 请求没有 `Origin`/`Referer` 头（服务器直发会被拒） |
 | 指标卡空但钻取有数据 | rollup 每小时 `:05` 跑——等下一轮 |
 | 无法登录 / 提示「非管理员」 | 你的邮箱不在 `ADMIN_EMAILS` 里,或没配置任何 OAuth 渠道 |
@@ -600,6 +600,30 @@ curl "http://localhost:8791/__scheduled?cron=5+*+*+*+*"
 ```
 
 测试页面的嵌入代码里写 `data-api="http://localhost:8788"`。
+
+## 自动部署（GitHub Actions）
+
+[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) 会在每次推送到 `my`
+分支时部署，只改动 Markdown 或 `docs/` 的推送会跳过。想换分支就改 `branches:`。在
+**Actions → Deploy → Run workflow** 可以手动触发。它执行的步骤和下面的手动更新相同：
+类型检查、把 `f.js` 构建进 console 资源、应用迁移，然后运行 `deploy:all`。类型检查或
+迁移失败时，运行会在部署任何 Worker 之前停止。反代 Worker 不在其中。
+
+用于部署的分支必须在各 `wrangler.toml` 里保存真实 ID。
+
+在 **Settings → Secrets and variables → Actions** 中添加：
+
+| Secret | 是否必需 | 值 |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | 是 | Cloudflare API 令牌（见下） |
+| `CONFIG_LOCAL_TOML` | 调过参数时需要 | `config.local.toml` 的完整内容。不设置时，构建会静默使用 `config.example.toml` |
+
+在 **My Profile → API Tokens** 创建令牌：从 *Edit Cloudflare Workers* 模板开始，再添加
+**Account → D1 → Edit**。保留模板里的 Workers KV、Workers Scripts（含 Queues 相关）和
+Workers Routes 权限，区域要包含你的自定义域名所在的 zone，并加上 **Zone → DNS → Edit**。
+
+Worker 密钥（`HMAC_KEY` 等）保存在 Cloudflare，工作流不会读取或修改。`home.html` 被
+gitignore 了，除非在私有 fork 中提交它，否则自动部署会丢掉自定义首页。
 
 ## 更新已有部署
 

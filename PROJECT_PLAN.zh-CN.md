@@ -81,7 +81,7 @@
 
 四层 ID：`site_id → visitor_id → session_id → user_id`。
 
-- **site_id**：注册站点时分配，8 位随机串。一个 site 绑定多个域名/子域名（`allowed_domains` 白名单，防盗用）。
+- **site_id**：注册站点时分配，8 位随机串。一个 site 绑定多个域名/子域名（`allowed_domains` 白名单，防盗用）。条目形式：`example.com`（含子域名）、`*.example.com`（仅子域名）、`*`（任意来源，等于关闭防护）。
 - **visitor_id**：UUID，首访生成。写一方 Cookie `_pv_id`（`domain=.example.com` 跨子域共享），localStorage 备份。有效期 13 个月。
 - **session_id**：UUID。开新会话条件（任一）：30 分钟无活动 / UTM 变化 / 跨自然日。存 Cookie `_pv_sid` + 最后活动时间戳。
 - **user_id**：`identify()` 后绑定。`identities` 表维护 user↔visitor 映射，实现同一用户多设备多会话合并。
