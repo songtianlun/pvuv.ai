@@ -174,6 +174,7 @@ export interface Filter { dim: string; value: string; values?: string[]; }
 /** dim → raw-events WHERE fragment (+binds). */
 const EVENT_FILTER: Record<string, (v: string) => { sql: string; binds: unknown[] }> = {
   page: (v) => ({ sql: 'path = ?', binds: [v] }),
+  hostname: (v) => ({ sql: 'hostname = ?', binds: [v] }),
   country: (v) => v === '(unknown)' ? { sql: 'country IS NULL', binds: [] } : { sql: 'country = ?', binds: [v] },
   device: (v) => ({ sql: 'device_type = ?', binds: [v] }),
   browser: (v) => v === '(unknown)' ? { sql: 'browser IS NULL', binds: [] } : { sql: 'browser = ?', binds: [v] },
@@ -196,6 +197,9 @@ const EVENT_FILTER: Record<string, (v: string) => { sql: string; binds: unknown[
  *  (utm_term/content, ft_*) can't constrain session-derived metrics. */
 const SESSION_FILTER: Record<string, (v: string) => { sql: string; binds: unknown[] }> = {
   page: (v) => ({ sql: 'entry_page = ?', binds: [v] }),
+  // a session belongs to the host it entered on (0003); sessions recorded
+  // before that migration have no entry_host and drop out of host-filtered views
+  hostname: (v) => ({ sql: 'entry_host = ?', binds: [v] }),
   country: (v) => v === '(unknown)' ? { sql: 'country IS NULL', binds: [] } : { sql: 'country = ?', binds: [v] },
   device: (v) => ({ sql: 'device_type = ?', binds: [v] }),
   source: (v) => v === '(direct)' ? { sql: 'source IS NULL', binds: [] } : { sql: 'source = ?', binds: [v] },
@@ -696,7 +700,7 @@ function subDayLabel(instant: number, tz: string, interval: string, withDate: bo
 }
 
 // ---------------------------------------------------------------------------
-// GET /sites/:id/breakdown?dim=page|source|utm_campaign|country|device  (live)
+// GET /sites/:id/breakdown?dim=page|hostname|source|utm_campaign|country|device  (live)
 // ---------------------------------------------------------------------------
 
 export async function breakdown(db: D1Database, siteId: string, dim: string, period: Period, limit: number, key: string | null = null, filters: Filter[] = []) {
@@ -811,10 +815,10 @@ export async function breakdown(db: D1Database, siteId: string, dim: string, per
     return { dim, rows: rows.results };
   }
 
-  // country / device / browser / os / region / city: raw pageviews, exact
+  // hostname / country / device / browser / os / region / city: raw pageviews, exact
   // cross-month uv via COUNT(DISTINCT). Sub-tab dimensions of the geo/device panels.
   const SIMPLE_EVENT_DIMS: Record<string, string> = {
-    country: 'country', device: 'device_type', browser: 'browser',
+    hostname: 'hostname', country: 'country', device: 'device_type', browser: 'browser',
     os: 'os', region: 'region', city: 'city',
   };
   if (Object.prototype.hasOwnProperty.call(SIMPLE_EVENT_DIMS, dim)) {

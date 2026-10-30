@@ -301,8 +301,8 @@ const FILTER_KEY = 'pvuv.filters.' + site;
 // the whole dashboard; filters stack (AND), one per dimension. Persisted per
 // site so a reload keeps the view. Only cleanly-supported dims are clickable.
 let filters = [];
-const FILTER_UI = new Set(['source', 'page', 'country', 'region', 'city', 'device', 'browser', 'os', 'utm_campaign', 'utm_medium']);
-const FILTER_LABEL = { source: 'Source', page: 'Page', country: 'Country', region: 'Region', city: 'City', device: 'Device', browser: 'Browser', os: 'OS', utm_campaign: 'Campaign', utm_medium: 'Medium' };
+const FILTER_UI = new Set(['source', 'page', 'hostname', 'country', 'region', 'city', 'device', 'browser', 'os', 'utm_campaign', 'utm_medium']);
+const FILTER_LABEL = { source: 'Source', page: 'Page', hostname: 'Host', country: 'Country', region: 'Region', city: 'City', device: 'Device', browser: 'Browser', os: 'OS', utm_campaign: 'Campaign', utm_medium: 'Medium' };
 function loadFilters() {
   try { filters = JSON.parse(localStorage.getItem(FILTER_KEY)) || []; } catch { filters = []; }
   if (!Array.isArray(filters)) filters = [];
@@ -485,6 +485,7 @@ const dimConfig = {
   channel:     { label: 'Channels',  headers: ['Channel', 'Sessions', 'PV', 'PV clean', 'Visitors'], val: (r) => r.key, bar: (r) => r.uv, icon: (r) => `<span class="favi-generic">${CHANNEL_ICON[r.key] || '🔗'}</span>`, cells: (r) => [te(CHANNEL_LABEL[r.key] || r.key), fmt(r.sessions), fmt(r.pv), fmt(r.pv_clean), fmt(r.uv)] },
   page:        { label: 'Pages',     headers: ['Path', 'PV', 'PV clean', 'Visitors', 'Bounces'], val: (r) => r.path, bar: (r) => r.uv, cells: (r) => [esc(r.path), fmt(r.pv), fmt(r.pv_clean), fmt(r.uv), fmt(r.bounces)] },
   entry_page:  { label: 'Entry',     headers: ['Entry page', 'Sessions', 'Visitors'], val: (r) => r.key, bar: (r) => r.uv, cells: (r) => [esc(r.key), fmt(r.sessions), fmt(r.uv)] },
+  hostname:    { label: 'Hosts',     headers: ['Host', 'PV', 'PV clean', 'Visitors'], val: (r) => r.key, bar: (r) => r.uv, cells: geoCell },
   exit_page:   { label: 'Exit',      headers: ['Exit page', 'Sessions', 'Visitors'], val: (r) => r.key, bar: (r) => r.uv, cells: (r) => [esc(r.key), fmt(r.sessions), fmt(r.uv)] },
   country:     { label: 'Countries', headers: ['Country', 'PV', 'PV clean', 'Visitors'], val: (r) => r.key, bar: (r) => r.uv, icon: (r) => flagEmoji(r.key), cells: (r) => [esc(countryLabel(r.key)), fmt(r.pv), fmt(r.pv_clean), fmt(r.uv)] },
   region:      { label: 'Regions',   headers: ['Region', 'PV', 'PV clean', 'Visitors'], val: (r) => r.key, bar: (r) => r.uv, cells: geoCell },
@@ -547,7 +548,7 @@ function renderBreakdown(elId, dim, rows) {
 // ── tabbed breakdown panels (Plausible-style dimension switchers)
 const PANELS = {
   sources:   ['source', 'channel'],
-  pages:     ['page', 'entry_page', 'exit_page'],
+  pages:     ['page', 'entry_page', 'exit_page', 'hostname'],
   countries: ['country', 'region', 'city'],
   devices:   ['browser', 'os', 'device', 'size'],
 };
@@ -1163,7 +1164,7 @@ async function loadAdguard() {
 // Bundle every endpoint the dashboard reads — for the CURRENTLY selected period
 // AND active filters — into one JSON file. Limits are generous (not the on-screen
 // top-N) so the export is the full data for the range, easy to audit offline.
-const DL_DIMS = ['source', 'channel', 'page', 'entry_page', 'exit_page', 'country', 'region', 'city',
+const DL_DIMS = ['source', 'channel', 'page', 'entry_page', 'exit_page', 'hostname', 'country', 'region', 'city',
   'browser', 'os', 'device', 'size', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
   'ft_source', 'ft_medium', 'ft_campaign', 'goal'];
 async function downloadData() {
