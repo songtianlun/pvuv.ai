@@ -69,8 +69,8 @@ awkward (some no-code and spreadsheet tools).
 - `metric` — `pv` `uv` `sessions` `bounce_rate` `bounce_rate_single`
   `avg_duration_ms` `visit_duration_ms`
 - `interval` — `minute` `hour` `day` `week` `month`
-- `dim` — `page` `entry_page` `exit_page` `source` `referrer` `country` `region`
-  `city` `browser` `os` `device` `size` `utm_*` `ft_*` `goal` `bot_category`
+- `dim` — `page` `entry_page` `exit_page` `hostname` `source` `referrer` `country`
+  `region` `city` `browser` `os` `device` `size` `utm_*` `ft_*` `goal` `bot_category`
 - `limit`, `filters` (JSON array of `{dim,value}`)
 
 Errors are `{"error":"…"}` with a matching status: `401` bad/missing token,

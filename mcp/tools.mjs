@@ -14,7 +14,7 @@ export const PERIODS = [
   'this_week', 'last_week', 'this_month', 'last_month', 'this_year',
 ];
 export const DIMENSIONS = [
-  'page', 'entry_page', 'exit_page', 'source', 'referrer', 'country', 'region', 'city',
+  'page', 'entry_page', 'exit_page', 'hostname', 'source', 'referrer', 'country', 'region', 'city',
   'browser', 'os', 'device', 'size', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
   'ft_source', 'ft_medium', 'ft_campaign', 'goal', 'bot_category',
 ];
