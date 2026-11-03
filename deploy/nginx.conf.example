@@ -1,0 +1,23 @@
+# Terminate HTTPS here or in your existing ingress. All original hostnames can
+# point to the same app: console, api, ingest, and SDK assets.
+server {
+    listen 443 ssl;
+    server_name analytics.example.com api.example.com in.example.com js.example.com;
+    # Configure your certificate and ssl_certificate_key here.
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Set the SAME private value as the app's PROXY_TOKEN; overwrite rather
+        # than append client headers. Do not commit the configured value.
+        proxy_set_header X-Pv-Proxy REPLACE_WITH_YOUR_PROXY_TOKEN;
+        proxy_set_header X-Pv-Ip $remote_addr;
+        proxy_set_header X-Pv-Cf "";
+        proxy_set_header X-Pv-Asn "";
+        proxy_set_header X-Pv-Asorg "";
+        proxy_set_header X-Pv-Tz "";
+        proxy_set_header X-Pv-Country "";
+        proxy_set_header X-Pv-Region "";
+        proxy_set_header X-Pv-City "";
+    }
+}

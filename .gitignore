@@ -167,3 +167,6 @@ workers/console/public/home.*.html
 
 # local wrangler dev persistence (D1/KV state, seed helpers)
 .wrangler-local/
+
+# Docker / standalone SQLite runtime
+data/

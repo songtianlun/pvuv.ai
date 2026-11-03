@@ -1,4 +1,4 @@
-# Deploys to Cloudflare on every push to `my` (DEPLOY.md, "Automatic deployment").
+# Optional legacy Cloudflare deployment; manual only after Docker migration.
 #
 # Secrets (repo settings → Secrets and variables → Actions):
 #   CLOUDFLARE_API_TOKEN  required
@@ -10,11 +10,6 @@
 name: Deploy
 
 on:
-  push:
-    branches: [my]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   workflow_dispatch:
 
 # Never run two deploys at once, and never cancel one halfway through a

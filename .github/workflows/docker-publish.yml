@@ -1,0 +1,212 @@
+name: Docker Build And Publish
+
+on:
+  push:
+    branches:
+      - my
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+  USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck && npm run typecheck:server && npm run build:server
+      - run: npm run test:server
+
+  prepare:
+    name: Prepare Docker Metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+      tag_suffixes: ${{ steps.docker_tags.outputs.tag_suffixes }}
+      keel_tag: ${{ steps.docker_tags.outputs.KEEL_TAG }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Version
+        id: get_version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="$(git describe --dirty --always --tags --abbrev=7 2>/dev/null || echo devel)"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${VERSION}"
+
+      - name: Determine Docker Tags
+        id: docker_tags
+        run: |
+          TAG_SUFFIXES=""
+          KEEL_TAG=""
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/}"
+            TAG_SUFFIXES="${TAG_VERSION},latest"
+            KEEL_TAG="${TAG_VERSION}"
+            echo "Building release: ${TAG_VERSION}"
+          else
+            TAG_SUFFIXES="devel"
+            KEEL_TAG="devel"
+            echo "Building development version"
+          fi
+          echo "tag_suffixes=${TAG_SUFFIXES}" >> "$GITHUB_OUTPUT"
+          echo "KEEL_TAG=${KEEL_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Docker tag suffixes: ${TAG_SUFFIXES}"
+
+  docker-amd64:
+    name: Build amd64 image
+    runs-on: ubuntu-24.04
+    needs: [prepare, test]
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USERNAME }}
+          password: ${{ env.TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push amd64 image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          secrets: |
+            "scoring_config=${{ secrets.CONFIG_LOCAL_TOML }}"
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64,mode=max
+
+  docker-arm64:
+    name: Build arm64 image
+    runs-on: ubuntu-24.04-arm
+    needs: [prepare, test]
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USERNAME }}
+          password: ${{ env.TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push arm64 image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          secrets: |
+            "scoring_config=${{ secrets.CONFIG_LOCAL_TOML }}"
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-arm64
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-arm64,mode=max
+
+  docker-manifest:
+    name: Publish multi-arch image
+    runs-on: ubuntu-24.04
+    needs:
+      - prepare
+      - docker-amd64
+      - docker-arm64
+
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USERNAME }}
+          password: ${{ env.TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push multi-arch manifest
+        env:
+          TAG_SUFFIXES: ${{ needs.prepare.outputs.tag_suffixes }}
+          AMD64_DIGEST: ${{ needs.docker-amd64.outputs.digest }}
+          ARM64_DIGEST: ${{ needs.docker-arm64.outputs.digest }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          IFS=',' read -ra tag_suffixes <<< "${TAG_SUFFIXES}"
+          for tag_suffix in "${tag_suffixes[@]}"; do
+            tag_args+=("-t" "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${tag_suffix}")
+          done
+
+          docker buildx imagetools create \
+            "${tag_args[@]}" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${AMD64_DIGEST}" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${ARM64_DIGEST}"
+
+      - name: Inspect multi-arch manifest
+        env:
+          TAG_SUFFIXES: ${{ needs.prepare.outputs.tag_suffixes }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra tag_suffixes <<< "${TAG_SUFFIXES}"
+          docker buildx imagetools inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${tag_suffixes[0]}"
+
+      - name: Notify Keel
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          KEEL_TAG: ${{ needs.prepare.outputs.keel_tag }}
+          KEEL_WEBHOOK_URL: ${{ vars.KEEL_WEBHOOK_URL || 'https://keel.skybyte.me/v1/webhooks/native' }}
+          KEEL_USER: ${{ secrets.KEEL_USER }}
+          KEEL_PASSWORD: ${{ secrets.KEEL_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEEL_USER" && test -n "$KEEL_PASSWORD"
+          jq -n --arg name "$IMAGE" --arg tag "$KEEL_TAG" '{name: $name, tag: $tag}' |
+            curl --fail-with-body --silent --show-error --retry 3 \
+              -u "$KEEL_USER:$KEEL_PASSWORD" \
+              -H 'Content-Type: application/json' \
+              --data @- \
+              "$KEEL_WEBHOOK_URL"

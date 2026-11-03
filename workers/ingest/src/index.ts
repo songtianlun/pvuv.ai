@@ -71,12 +71,13 @@ function resolveClient(request: Request, env: Env): ClientCtx {
     const h = (k: string) => request.headers.get(k) || undefined;
     const asn = h('x-pv-asn');
     const cf = {
-      asn: asn ? parseInt(asn, 10) : undefined,
-      asOrganization: h('x-pv-asorg'),
-      timezone: h('x-pv-tz'),
-      country: h('x-pv-country'),
-      region: h('x-pv-region'),
-      city: h('x-pv-city'),
+      ...realCf,
+      asn: asn ? parseInt(asn, 10) : realCf?.asn,
+      asOrganization: h('x-pv-asorg') ?? realCf?.asOrganization,
+      timezone: h('x-pv-tz') ?? realCf?.timezone,
+      country: h('x-pv-country') ?? realCf?.country,
+      region: h('x-pv-region') ?? realCf?.region,
+      city: h('x-pv-city') ?? realCf?.city,
     } as unknown as IncomingRequestCfProperties;
     return { cf, ip: h('x-pv-ip') ?? realIp };
   }

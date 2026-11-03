@@ -1,5 +1,7 @@
 # pvuv.ai
 
+> Docker + SQLite 部署（免 Workers 请求计费）：[部署说明](./DEPLOY.docker.zh-CN.md)。
+
 **注重隐私的网站统计,内置无效流量识别与广告防护。可以直接用官方托管服务,也可以完全自己部署在 Cloudflare 上。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)

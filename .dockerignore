@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+dist
+.wrangler*
+.env*
+.dev.vars*
+config.local.*
+*.log
+coverage
+server/tests
+
+data
+*.sqlite*
+*.db*

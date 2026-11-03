@@ -1,5 +1,7 @@
 # pvuv.ai
 
+> Docker + SQLite self-hosting: [deployment guide (Chinese)](./DEPLOY.docker.zh-CN.md). No Workers request billing or PostgreSQL migration required.
+
 **Privacy-conscious web analytics with built-in invalid-traffic detection and ad protection. Use the hosted service, or run the whole thing yourself on Cloudflare.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
