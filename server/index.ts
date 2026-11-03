@@ -8,6 +8,8 @@ import { connect } from "./database";
 import { migrate } from "./migrate";
 import { assets, SQLiteKV, SQLiteQueue } from "./bindings";
 import { startJobs } from "./jobs";
+import { TrustedProxies } from "./proxy";
+const proxies = new TrustedProxies(process.env.TRUSTED_PROXY_CIDRS);
 const db = connect();
 await migrate(db);
 if (process.argv.includes("--migrate")) {
@@ -39,14 +41,16 @@ const trusted = (req: IncomingMessage) => {
 const server = createServer(async (req, res) => {
   try {
     const isTrusted = trusted(req);
+    const peer = req.socket.remoteAddress ?? "";
+    const trustedPeer = proxies.trusts(peer);
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers))
       if (value)
         headers.set(key, Array.isArray(value) ? value.join(", ") : value);
-    // Host/scheme forwarding and client metadata require the SAME explicit
-    // authentication as the existing first-party proxy. Never trust the Internet.
+    // Standard forwarding requires an allowlisted peer. Rich x-pv metadata
+    // additionally requires the original authenticated proxy token.
     const proto =
-      isTrusted && req.headers["x-forwarded-proto"] === "https"
+      (isTrusted || trustedPeer) && req.headers["x-forwarded-proto"] === "https"
         ? "https"
         : "http";
     const host = process.env.PUBLIC_URL
@@ -58,11 +62,12 @@ const server = createServer(async (req, res) => {
     url.pathname = incomingURL.pathname;
     url.search = incomingURL.search;
     if (!isTrusted) {
+      const clientIP = proxies.clientIP(peer, headers.get("x-forwarded-for") ?? undefined);
       headers.delete("cf-connecting-ip");
       for (const key of [...headers.keys()])
         if (key.startsWith("x-pv-") || key.startsWith("x-forwarded-"))
           headers.delete(key);
-      headers.set("cf-connecting-ip", req.socket.remoteAddress ?? "");
+      headers.set("cf-connecting-ip", clientIP);
     } else {
       headers.delete("cf-connecting-ip");
       headers.set(

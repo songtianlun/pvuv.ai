@@ -1,0 +1,22 @@
+# Optional: restrict direct application access before trusting a broad Pod CIDR.
+# Change the Traefik namespace and Pod labels to match your installation.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pvuv-from-traefik
+spec:
+  podSelector:
+    matchLabels:
+      app: pvuv
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 3000

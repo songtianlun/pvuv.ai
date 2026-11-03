@@ -48,7 +48,8 @@ spec:
             - name: PORT
               value: "3000"
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
           volumeMounts:
             - name: data
               mountPath: /data
@@ -76,8 +77,10 @@ kind: Service
 metadata:
   name: pvuv
 spec:
+  type: ClusterIP
   selector:
     app: pvuv
   ports:
-    - port: 3000
-      targetPort: 3000
+    - name: http
+      port: 3000
+      targetPort: http
