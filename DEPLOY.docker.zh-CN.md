@@ -37,7 +37,8 @@ docker compose logs -f app
 | `INGEST_HOST`                               | 上报域名，不含协议；保持旧值即可保留现有嵌入代码                         |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth，或改配 GitHub                                              |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth，至少启用一个登录提供商                                     |
-| `PROXY_TOKEN`                               | 部署在反向代理后时，验证转发的真实访客 IP/元数据；代理和应用使用同一个值 |
+| `PROXY_TOKEN`                               | 使用 `x-pv-*` 协议的代理共享密钥（如下面的 nginx 示例） |
+| `TRUSTED_PROXY_CIDRS`                        | Traefik 等标准反向代理的实际来源 IP/CIDR，逗号分隔；用于验证 `X-Forwarded-For` |
 
 可选：`API_TOKEN`、`AI_API_KEY`、`DEFAULT_LANG`、`PORT`（默认 3000）、`SQLITE_PATH`（Docker 中为 `/data/pvuv.sqlite`）。
 AI 配置、爬虫目录、Cloudflare 只读边缘统计令牌仍可以从原有控制台设置。
@@ -80,14 +81,62 @@ GitHub 仓库 Settings → Secrets and variables → Actions 配置：
 
 本次实现不会主动上传镜像或调用你的 Keel。配置密钥并推送后，GitHub Actions 才会执行。
 Keel 管理 Kubernetes 的 Deployment 更新；Docker Compose 使用 `docker compose pull && docker compose up -d --no-build` 更新。
-Kubernetes 示例见 `deploy/kubernetes.yaml`，修改镜像名称后，用安全环境文件创建配置：
+Kubernetes 工作负载示例见 `deploy/kubernetes.yaml`。清单仅供参考，请按自己的集群、部署工具和已有资源配置，不需要直接应用仓库中的文件。
+镜像私有时另外配置 `imagePullSecrets`。
 
-```bash
-kubectl create secret generic pvuv-env --from-env-file=.env
-kubectl apply -f deploy/kubernetes.yaml
+### Kubernetes + Traefik 的域名、Ingress 与 TLS
+
+原 Workers 配置实际绑定了以下三个域名；迁移后它们共用 `Service/pvuv`，不需要启动三个应用 Pod：
+
+| 域名 | Traefik 转发路径 | 用途 |
+| --- | --- | --- |
+| `analytics.oskyla.com` | `/`，保留原路径 | 控制台、OAuth `/api/auth/*`、同源 `/api/*`、SDK `/f.js` |
+| `in.oskyla.com` | `/in`、`/v`，精确匹配 | 事件上报、广告判定，包含 OPTIONS 预检 |
+| `api.oskyla.com` | `/v1` 前缀，保留原路径 | CLI、MCP 和外部查询 API |
+
+`deploy/ingress.traefik.yaml` 展示了这三个域名的路由方法：`ingressClassName: traefik`、`websecure` 入口及 TLS Secret `pvuv-tls`。
+将对应规则合并到自己的 Ingress/Helm/GitOps 配置中；如使用其他域名或 IngressClass 名称，同步修改路由和 TLS 证书。
+当前 SDK 由控制台域名提供；如果旧嵌入代码还使用独立的 `js.*` 域名，请额外增加该域名的 `/f.js` 精确匹配规则，并将域名加入 `tls.hosts` 和证书。
+
+Pod 的环境变量（通过自己的 Secret、ConfigMap 或部署工具设置）应包含：
+
+```dotenv
+PUBLIC_URL=https://analytics.oskyla.com
+INGEST_HOST=in.oskyla.com
+# 填实际 Traefik 来源地址/网段，不要照抄其他集群的 Pod CIDR：
+TRUSTED_PROXY_CIDRS=
 ```
 
-镜像私有时另外配置 `imagePullSecrets`；Ingress/TLS 沿用你的集群配置。
+`PUBLIC_URL` 始终是控制台地址，OAuth 回调仍为 `https://analytics.oskyla.com/api/auth/google/callback` 或 `/api/auth/github/callback`。
+三个域名的 DNS A/AAAA/CNAME 要指向 Traefik 的外部负载均衡入口；原 Cloudflare Worker Custom Domain 路由也需要解除或切换，否则请求仍可能被旧 Worker 接走。
+
+Ingress 的 `spec.tls.secretName` 指向应用所在 namespace 的 TLS Secret。证书必须覆盖三个域名；`*.oskyla.com` 通配符也能覆盖它们。
+已有证书 Secret 时直接引用它；也可由 cert-manager 管理，或用自己的证书创建，例如：
+
+```bash
+kubectl -n YOUR_NAMESPACE create secret tls pvuv-tls \
+  --cert=/path/fullchain.pem --key=/path/privkey.pem
+```
+
+Ingress、Service、`pvuv-env` 和 `pvuv-tls` 必须在同一个 namespace。
+这个清单使用标准 Ingress，不要求额外安装 Traefik Middleware/IngressRoute CRD；HTTP 到 HTTPS 的跳转沿用 Traefik 的全局 `web` → `websecure` 配置。
+
+**真实访客 IP：** Traefik 自动产生 `X-Forwarded-For`，应用只接受 `TRUSTED_PROXY_CIDRS` 中代理来源的转发链，从右向左定位第一个不受信任的客户端。
+空配置时使用 TCP 对端 IP；不要将其设为 `0.0.0.0/0` 或 `::/0`。
+可先用 `kubectl -n kube-system get pods -l app.kubernetes.io/name=traefik -o wide` 查看 Traefik 地址，并结合实际 Pod/Node 网段配置。
+若信任整个 Pod 网段，应配合 NetworkPolicy 将应用入口限制到 Traefik。`deploy/networkpolicy.traefik.yaml` 仅展示选择器的写法；按实际 Traefik namespace、Pod 标签和 CNI 能力，将对应规则加入自己的网络访问控制配置。
+通过网段验证的普通代理仍会剥离客户端传入的 `x-pv-*`、`cf-connecting-ip`，只解析标准转发链。现有 `PROXY_TOKEN` 模式仍可用于需要转发额外元数据的自建代理。
+
+如果 Traefik 前还有 CDN/L7 负载均衡，需要同时按它们的真实来源范围配置 Traefik `forwardedHeaders.trustedIPs` 和应用的代理链；L4 负载均衡还要保留客户端源 IP（按集群使用 `externalTrafficPolicy: Local` 或受信任的 PROXY protocol）。不要开启全网 `forwardedHeaders.insecure`。
+
+切换前可将 `INGRESS_IP` 替换为入口地址逐域名验证；下面不跳过 TLS 验证：
+
+```bash
+curl --resolve analytics.oskyla.com:443:INGRESS_IP https://analytics.oskyla.com/f.js
+curl --resolve in.oskyla.com:443:INGRESS_IP -X OPTIONS https://in.oskyla.com/in
+curl --resolve api.oskyla.com:443:INGRESS_IP https://api.oskyla.com/v1/sites
+# 最后一条匿名请求应返回 401；随后登录控制台运行 Self-check。
+```
 
 ## 从现有 D1 切换（可选，不转换数据库方言）
 

@@ -13,6 +13,7 @@ import ingest from "../../workers/ingest/src/index";
 import api from "../../workers/api/src/index";
 import consoleWorker from "../../workers/console/src/index";
 import { hmacSign } from "../../shared/ids";
+import { hashIP } from "../../workers/ingest/src/enrich";
 import { runHourlyRollup } from "../../workers/cron/src/rollup";
 import { runDailyBatch } from "../../workers/cron/src/batch";
 import {
@@ -426,6 +427,10 @@ test("business flow using original D1 SQL on persistent SQLite", async (t) => {
           HMAC_KEY: key,
           PUBLIC_URL: "https://analytics.example.test",
           ADMIN_EMAILS: "admin@example.test",
+          GOOGLE_CLIENT_ID: "test-google-client-id",
+          GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+          TRUSTED_PROXY_CIDRS: "127.0.0.1/32",
+          PROXY_TOKEN: "test-legacy-proxy-token",
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -461,6 +466,51 @@ test("business flow using original D1 SQL on persistent SQLite", async (t) => {
           (await fetch(`http://127.0.0.1:${port}/v1/sites`)).status,
           401,
         );
+        const address = `http://127.0.0.1:${port}`;
+        const oauth = await fetch(`${address}/api/auth/google/start`, {
+          redirect: "manual", headers: { host: "analytics.example.test" },
+        });
+        assert.equal(oauth.status, 302);
+        assert.equal(new URL(oauth.headers.get("location")!).searchParams.get("redirect_uri"),
+          "https://analytics.example.test/api/auth/google/callback");
+        assert.equal((await fetch(`${address}/f.js`, { headers: { host: "js.example.test" } })).status, 200);
+        assert.equal((await fetch(`${address}/in`, { method: "OPTIONS", headers: { host: "in.example.test" } })).status, 204);
+        const registration = await fetch(`${address}/api/diagnostics/selftest-site`, {
+          method: "POST", headers: { cookie, host: "analytics.example.test", "content-type": "application/json" },
+          body: JSON.stringify({ host: "example.test" }),
+        });
+        assert.equal(registration.status, 200);
+        const { site_id: httpSite } = await registration.json() as { site_id: string };
+        const httpNow = Date.now();
+        for (const [visitor, forwarding] of [
+          ["http-traefik", { "x-forwarded-for": "192.0.2.66, 203.0.113.9", "x-pv-ip": "192.0.2.99", "x-pv-country": "ZZ" }],
+          ["http-legacy", { "x-pv-proxy": "test-legacy-proxy-token", "x-pv-ip": "192.0.2.4", "x-pv-country": "US" }],
+        ] as const) {
+          const received = await fetch(`${address}/in`, {
+            method: "POST", headers: { host: "in.example.test", origin: "https://example.test", ...forwarding },
+            body: JSON.stringify({ s: httpSite, e: "pageview", u: "https://example.test/", vid: visitor, sid: visitor, ts: httpNow }),
+          });
+          assert.equal(received.status, 204);
+        }
+        const query = await fetch(`${address}/v1/sites`, { headers: { cookie, host: "api.example.test" } });
+        assert.equal(query.status, 200);
+        const persisted = connect(join(dir, "http.sqlite"));
+        try {
+          const suffix = new Date(httpNow).toISOString().slice(0, 7).replace("-", "");
+          let rows: { visitor_id: string; ip_hash: string; country: string | null }[] = [];
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            try {
+              rows = await persisted.all(`SELECT visitor_id,ip_hash,country FROM events_${suffix} WHERE site_id=? ORDER BY visitor_id`, [httpSite]);
+              if (rows.length === 2) break;
+            } catch { /* consumer has not created the partition yet */ }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          assert.deepEqual(rows, [
+            { visitor_id: "http-legacy", ip_hash: (await hashIP(key, "192.0.2.4")).ip_hash, country: "US" },
+            { visitor_id: "http-traefik", ip_hash: (await hashIP(key, "203.0.113.9")).ip_hash, country: null },
+          ]);
+        } finally { await persisted.close(); }
       } finally {
         child.kill("SIGTERM");
         await new Promise<void>((resolve) =>

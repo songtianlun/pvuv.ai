@@ -1,0 +1,59 @@
+# Apply in the SAME namespace as Service/pvuv and Secret/pvuv-tls.
+# Keep these hosts aligned with PUBLIC_URL, INGEST_HOST and existing SDK/API clients.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pvuv
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: pvuv-tls
+      hosts:
+        - analytics.oskyla.com
+        - in.oskyla.com
+        - api.oskyla.com
+  rules:
+    # Console, OAuth callbacks, same-origin /api/*, and /f.js.
+    - host: analytics.oskyla.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pvuv
+                port:
+                  name: http
+    # Preserve the original event and ad-verdict URLs without rewriting paths.
+    - host: in.oskyla.com
+      http:
+        paths:
+          - path: /in
+            pathType: Exact
+            backend:
+              service:
+                name: pvuv
+                port:
+                  name: http
+          - path: /v
+            pathType: Exact
+            backend:
+              service:
+                name: pvuv
+                port:
+                  name: http
+    - host: api.oskyla.com
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: pvuv
+                port:
+                  name: http
+# An existing js.* SDK hostname is optional. If clients still use it, add a
+# rule for that host's /f.js (Exact), and include the host in tls.hosts/certificate.
