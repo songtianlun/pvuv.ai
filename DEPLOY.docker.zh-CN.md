@@ -132,6 +132,51 @@ SQLite 消除了 Workers 请求计费，但容量仍取决于机器 CPU、磁盘
 
 ## 本地开发
 
+安装 Make、Node.js 22.16+ 和 Docker Compose 后，可以直接运行：
+
+```bash
+make dev          # 构建并在后台启动，等待健康检查通过
+make smoke        # 验证 HTTP、鉴权、上报 → 队列 → SQLite → 统计查询
+make dev-session  # 输出浏览器控制台登录命令，便于本地查看看板
+make dev-logs     # 查看日志，Ctrl-C 退出日志跟随
+make dev-down     # 停止容器，保留开发数据
+```
+
+默认地址为 `http://localhost:3000`。首次运行生成独立的 `.env.local`（随机 HMAC 密钥，权限 0600），后续运行保留已有配置。
+开发容器使用独立的 `pvuv-dev` Compose 项目与 `dev-data` 卷，不读取生产 `.env`。
+需要其他端口时，首次执行 `PVUV_DEV_PORT=3100 make dev-init`；已有配置需同时修改 `.env.local` 的 `PORT`、`PUBLIC_URL` 和 `INGEST_HOST`。
+代码修改后重新执行 `make dev` 构建并重启；此入口没有自动热重载。
+
+`make smoke` 会在内置 Self-check 站点写入一条测试事件，该站点不会显示在普通站点列表中。
+`make dev-session` 只在本机生成短期签名 Cookie，没有添加服务端免鉴权入口；关闭浏览器会话可在控制台退出登录。
+真实 OAuth 登录仍需在 `.env.local` 配置提供商。验证本地 HTTP 页面嵌入 SDK 时，手工将代码中的 `data-api` 设为 `http://localhost:3000`（或所选端口）；现有控制台生成的代码默认使用 HTTPS。
+
+只导入原 D1 的网站清单（`--table sites --no-schema` 导出）时：
+
+```bash
+make dev
+make import-sites FILE=/absolute/path/pvuv-sites.sql
+# 路径含空格时：
+make import-sites FILE="/absolute/path/sites export.sql"
+```
+
+入口将 SQL 通过标准输入传入运行中的开发容器，不需要重建镜像或复制文件到容器。
+脚本 `scripts/import-sites.mjs` 先在临时数据库中检查导出，然后在 `/data/` 创建 `pvuv.sqlite.before-sites-*.sqlite` 在线备份，事务导入并清理站点配置缓存。
+任何站点 ID 冲突都会整体回滚，不覆盖已有站点；原 `owner_id` 保持不变（当前控制台以 `admin` 为所有者）。
+此命令只恢复站点配置，不包含历史统计。完整 D1 数据库恢复仍使用前面的整库迁移流程。
+
+也可直接使用本机 Node 运行，SQLite 文件为 `data/dev.sqlite`：
+
+```bash
+make install
+make dev-native   # 前台运行，Ctrl-C 停止；不要和同端口的容器同时运行
+make check        # 类型检查与集成测试
+```
+
+原生 Node 环境也可以执行 `node --env-file=.env.local scripts/import-sites.mjs /path/pvuv-sites.sql`，导入 `.env.local` 中 `SQLITE_PATH` 指定的现有数据库。
+
+原有 npm 命令仍可使用（`dev:server` 读取 `.env`，Make 开发入口使用 `.env.local`）：
+
 ```bash
 npm ci
 npm run typecheck

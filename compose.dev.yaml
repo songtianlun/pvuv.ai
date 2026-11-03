@@ -1,0 +1,21 @@
+# Isolated from compose.yaml: separate configuration, project and data volume.
+services:
+  app:
+    image: pvuv-dev:local
+    build: .
+    init: true
+    env_file: .env.local
+    environment:
+      SQLITE_PATH: /data/pvuv.sqlite
+      PORT: "3000"
+    volumes:
+      - dev-data:/data
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
+    healthcheck:
+      interval: 2s
+      timeout: 5s
+      start_period: 5s
+    stop_grace_period: 35s
+volumes:
+  dev-data:
