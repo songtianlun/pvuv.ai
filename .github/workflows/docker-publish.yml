@@ -24,16 +24,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck && npm run typecheck:server && npm run build:server
-      - run: npm run test:server
+    uses: ./.github/workflows/checks.yml
 
   prepare:
     name: Prepare Docker Metadata
@@ -110,6 +101,7 @@ jobs:
             "scoring_config=${{ secrets.CONFIG_LOCAL_TOML }}"
           build-args: |
             VERSION=${{ needs.prepare.outputs.version }}
+            SCORING_CONFIG_VERSION=${{ github.run_id }}-${{ github.run_attempt }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64,mode=max
@@ -145,6 +137,7 @@ jobs:
             "scoring_config=${{ secrets.CONFIG_LOCAL_TOML }}"
           build-args: |
             VERSION=${{ needs.prepare.outputs.version }}
+            SCORING_CONFIG_VERSION=${{ github.run_id }}-${{ github.run_attempt }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-arm64
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-arm64,mode=max
@@ -152,6 +145,9 @@ jobs:
   docker-manifest:
     name: Publish multi-arch image
     runs-on: ubuntu-24.04
+    env:
+      KEEL_USER: ${{ secrets.KEEL_USER }}
+      KEEL_PASSWORD: ${{ secrets.KEEL_PASSWORD }}
     needs:
       - prepare
       - docker-amd64
@@ -195,12 +191,11 @@ jobs:
           docker buildx imagetools inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${tag_suffixes[0]}"
 
       - name: Notify Keel
+        if: env.KEEL_USER != '' && env.KEEL_PASSWORD != ''
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           KEEL_TAG: ${{ needs.prepare.outputs.keel_tag }}
           KEEL_WEBHOOK_URL: ${{ vars.KEEL_WEBHOOK_URL || 'https://keel.skybyte.me/v1/webhooks/native' }}
-          KEEL_USER: ${{ secrets.KEEL_USER }}
-          KEEL_PASSWORD: ${{ secrets.KEEL_PASSWORD }}
         run: |
           set -euo pipefail
           test -n "$KEEL_USER" && test -n "$KEEL_PASSWORD"
@@ -210,3 +205,7 @@ jobs:
               -H 'Content-Type: application/json' \
               --data @- \
               "$KEEL_WEBHOOK_URL"
+
+      - name: Report optional Keel notification status
+        if: env.KEEL_USER == '' || env.KEEL_PASSWORD == ''
+        run: echo 'Docker image published. Keel notification skipped because KEEL_USER/KEEL_PASSWORD are not configured.' >> "$GITHUB_STEP_SUMMARY"

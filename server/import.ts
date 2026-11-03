@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { connect } from "./database";
 import { migrate } from "./migrate";
+import { ensureEventColumns, eventsIndexDDL } from "../shared/events";
 const source = process.argv[2];
 const target = process.env.SQLITE_PATH;
 if (!source || !target)
@@ -31,17 +32,33 @@ try {
           "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
         )
         .all() as { name: string }[];
-      for (const { name } of tables) {
-        const actual = new Set(
-          (await db.all<{ name: string }>(`PRAGMA table_info(${name})`)).map(
-            (r) => r.name,
-          ),
-        );
-        for (const row of expected.prepare(`PRAGMA table_info(${name})`).all())
-          if (!actual.has(String(row.name)))
+      const validate = async (name: string, template = name) => {
+        const actual = await db.all<{ name: string; pk: number }>(`PRAGMA table_info(${name})`);
+        const names = new Set(actual.map((r) => r.name));
+        const columns = expected.prepare(`PRAGMA table_info(${template})`).all();
+        for (const row of columns)
+          if (!names.has(String(row.name)))
             throw new Error(
               `Export is missing ${name}.${row.name}; apply D1 migrations before exporting`,
             );
+        const keys = (rows: { name: unknown; pk: unknown }[]) => rows
+          .filter((r) => Number(r.pk) > 0).sort((a, b) => Number(a.pk) - Number(b.pk))
+          .map((r) => r.name).join(",");
+        if (keys(actual) !== keys(columns as { name: unknown; pk: unknown }[]))
+          throw new Error(`Export has an outdated primary key on ${name}; apply D1 migrations before exporting`);
+      };
+      for (const { name } of tables) {
+        // Retention legitimately removes the initial month (and may leave no
+        // raw partitions at all). Fixed tables define the migration version.
+        if (!/^events_\d{6}$/.test(name)) await validate(name);
+      }
+      const partitions = (await db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'"))
+        .filter(({ name }) => /^events_\d{6}$/.test(name));
+      for (const { name } of partitions) {
+        const suffix = name.slice(7);
+        await ensureEventColumns(db.asD1(), suffix);
+        await db.batch(eventsIndexDDL(suffix).map((sql) => db.prepare(sql)));
+        await validate(name, "events_202607");
       }
     } finally {
       expected.close();

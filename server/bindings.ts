@@ -70,6 +70,7 @@ const mime: Record<string, string> = {
   json: "application/json",
 };
 export function assets(root = resolve("workers/console/public")): Fetcher {
+  root = resolve(root);
   return {
     async fetch(request: Request) {
       if (!["GET", "HEAD"].includes(request.method))
@@ -80,27 +81,29 @@ export function assets(root = resolve("workers/console/public")): Fetcher {
       } catch {
         return new Response(null, { status: 400 });
       }
-      const file = resolve(
-        root,
-        `.${name.endsWith("/") ? `${name}index.html` : name}`,
-      );
-      if (!file.startsWith(root + sep))
+      const base = resolve(root, `.${name}`);
+      if (base !== root && !base.startsWith(root + sep))
         return new Response(null, { status: 404 });
-      try {
-        const info = await stat(file);
-        if (!info.isFile()) return new Response(null, { status: 404 });
-        return new Response(
-          request.method === "HEAD" ? null : await readFile(file),
-          {
-            headers: {
-              "content-type":
-                mime[file.split(".").pop()!] ?? "application/octet-stream",
+      // Workers assets resolve /home and /home.zh to their HTML files.
+      for (const file of [base, `${base}.html`, resolve(base, "index.html")]) {
+        if (!file.startsWith(root + sep)) continue;
+        try {
+          const info = await stat(file);
+          if (!info.isFile()) continue;
+          return new Response(
+            request.method === "HEAD" ? null : await readFile(file),
+            {
+              headers: {
+                "content-type":
+                  mime[file.split(".").pop()!] ?? "application/octet-stream",
+              },
             },
-          },
-        );
-      } catch {
-        return new Response(null, { status: 404 });
+          );
+        } catch {
+          // Try the HTML / directory-index fallback.
+        }
       }
+      return new Response(null, { status: 404 });
     },
   } as unknown as Fetcher;
 }

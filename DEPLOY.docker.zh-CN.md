@@ -2,7 +2,7 @@
 
 此部署复用原有 SDK、控制台、OAuth、查询 API、评分、广告防护、消费者和定时分析代码。
 SQL 和 `migrations/*.sql` 原样执行，没有 PostgreSQL/MySQL 转换，也不依赖 Cloudflare Workers、D1、KV 或 Queues 托管服务。
-原有 Cloudflare 发布保留为手动触发。
+原有 Cloudflare 部署工作流已暂停，包含手动触发的运行也会跳过部署任务；Docker 构建发布使用独立工作流。
 
 ## 运行方式
 
@@ -12,7 +12,9 @@ SQL 和 `migrations/*.sql` 原样执行，没有 PostgreSQL/MySQL 转换，也�
 - KV 缓存、过期时间、持久队列、重试/死信和调度记录都保存在同一个 SQLite 文件。
 - 队列消费的业务写入与删除队列消息处于同一事务，失败会整体回滚；最多重试 3 次，然后保留为死信。
 - 每小时 UTC `:05` 聚合；每天 UTC `03:30` 执行群体分析、异动检测、保留清理与可选边缘统计。
-  启动时补跑最近一个未完成的周期。调度记录与任务更新一起提交，重启不会遗失队列或已完成的调度记录。
+  启动后先消费积压，再补跑最近一个未完成的周期；待重试消息未处理完时暂停推进分析水位。
+  日分析留出 15 分钟接收窗口，画像累计和水位更新在同一短事务内提交；其余任务可幂等重跑。
+  外部边缘 API 请求在数据库事务外执行，并有 10 秒超时，不阻塞上报和查询。
 - **单实例部署，使用支持 SQLite 文件锁的本地块存储。不要把 WAL 数据库放在 NFS/对象存储，也不要横向扩容多个 Pod。**
   Kubernetes 示例使用 `replicas: 1` 和 `Recreate`，升级会有短暂中断。
 
@@ -47,7 +49,15 @@ OAuth 应用回调地址仍为 `https://<PUBLIC_URL域名>/api/auth/google/callb
 `GET /healthz` 用于就绪检查，内部 HTTP 请求验证即可。
 
 如果需要自定义首页，将 `home.html` / `home.<lang>.html` 通过只读挂载放入 `/app/workers/console/public/`，无需改业务代码。
-评分配置仍通过 `config.example.toml` 生成；私有 `config.local.toml` 不会被默认 Docker 上下文打包。可通过 `docker build --secret id=scoring_config,src=config.local.toml -t pvuv:local .` 提供；GitHub Actions 支持可选的 `CONFIG_LOCAL_TOML` Secret。构建时使用同样的评分权重，不把源配置文件留在镜像层里。
+评分配置仍通过 `config.example.toml` 生成；私有 `config.local.toml` 不会被默认 Docker 上下文打包。可通过下面的命令提供：
+
+```bash
+docker buildx build --load \
+  --build-arg SCORING_CONFIG_VERSION="$(sha256sum config.local.toml | cut -d ' ' -f 1)" \
+  --secret id=scoring_config,src=config.local.toml -t pvuv:local .
+```
+
+GitHub Actions 支持可选的 `CONFIG_LOCAL_TOML` Secret。构建参数 `SCORING_CONFIG_VERSION` 用于使编译缓存失效；本地使用配置摘要，CI 自动使用运行 ID 和重试次数，每次发布重新编译，依赖安装层仍可缓存。源配置文件不会留在镜像层里。
 
 ## Docker Hub 与 Keel 发布（沿用 rivulet）
 
@@ -61,11 +71,12 @@ GitHub 仓库 Settings → Secrets and variables → Actions 配置：
 | Secret           | `KEEL_PASSWORD`                                                       |
 | Variable（可选） | `KEEL_WEBHOOK_URL`，默认 `https://keel.skybyte.me/v1/webhooks/native` |
 
-`.github/workflows/docker-publish.yml` 先运行类型检查与业务测试，再在原生 amd64/arm64 runner 上构建，最后合并 manifest：
+`.github/workflows/checks.yml` 在 PR 上使用原生 amd64/arm64 runner 执行 `make check`（含导入器测试）、评分 Secret 更新后的镜像回归测试、Docker 构建和 `make smoke`，无需发布凭证。
+`.github/workflows/docker-publish.yml` 复用同一检查作为发布门禁，再构建并合并 manifest：
 
 - `my` / `main` 分支推送：`<DockerHub用户名>/pvuv.ai:devel`。
 - `v*` 标签：对应版本标签与 `latest`。
-- manifest 发布成功后，发送 `{name, tag}` 到 Keel native webhook，HTTP 失败会让工作流失败。
+- manifest 发布成功且配置 `KEEL_USER` / `KEEL_PASSWORD` 后，发送 `{name, tag}` 到 Keel native webhook，HTTP 失败会让工作流失败。未配置 Keel 凭据时跳过通知，不影响镜像发布。
 
 本次实现不会主动上传镜像或调用你的 Keel。配置密钥并推送后，GitHub Actions 才会执行。
 Keel 管理 Kubernetes 的 Deployment 更新；Docker Compose 使用 `docker compose pull && docker compose up -d --no-build` 更新。

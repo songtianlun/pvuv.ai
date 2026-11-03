@@ -34,7 +34,7 @@
     "dev:server": "npm run build:server && node --env-file-if-exists=.env dist/server/index.mjs",
     "start:server": "node --env-file-if-exists=.env dist/server/index.mjs",
     "typecheck:server": "tsc -p server --noEmit",
-    "test:server": "npm run build:server && esbuild server/tests/integration.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/tests.mjs && node --test dist/server/tests.mjs"
+    "test:server": "npm run build:server && esbuild server/tests/*.test.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/server --out-extension:.js=.mjs && node --test dist/server/*.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260101.0",

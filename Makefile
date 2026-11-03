@@ -2,7 +2,7 @@
 NODE ?= node
 NPM ?= npm
 
-.PHONY: help dev-init dev dev-down dev-logs dev-status dev-native dev-session smoke import-sites install check
+.PHONY: help dev-init dev dev-down dev-logs dev-status dev-native dev-session smoke import-sites install check check-image-config
 
 help:
 	@printf '%s\n' \
@@ -15,6 +15,7 @@ help:
 	  'make dev-down     Stop development containers; preserve SQLite data' \
 	  'make install      Install dependencies for native development/checks' \
 	  'make dev-native   Build and run Node with .env.local in the foreground' \
+	  'make check-image-config  Verify scoring Secret updates in Docker images' \
 	  'make check        Run type checks and SQLite integration tests'
 
 dev-init:
@@ -45,6 +46,9 @@ import-sites:
 
 install:
 	$(NPM) ci
+
+check-image-config:
+	$(NODE) scripts/check-scoring-cache.mjs
 
 dev-native: dev-init
 	$(NPM) run build:server

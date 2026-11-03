@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22-bookworm-slim AS build
+FROM node:22-bookworm-slim AS dependencies
 WORKDIR /app
 COPY package*.json ./
 COPY scripts/gen-config.mjs scripts/gen-config.mjs
@@ -9,12 +9,22 @@ RUN mkdir shared
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
     npm ci --no-audit --no-fund
+
+FROM dependencies AS build
 COPY . .
+# Secret contents are absent from cache keys. Change this public version when
+# changing private scoring configuration (CI uses the run ID and attempt).
+ARG SCORING_CONFIG_VERSION=default
 RUN --mount=type=secret,id=scoring_config,target=/app/config.local.toml \
+    test -n "$SCORING_CONFIG_VERSION" && \
     npm run config:gen && npm run typecheck && npm run typecheck:server && npm run build:server
 RUN npm prune --omit=dev --ignore-scripts
 
 FROM node:22-bookworm-slim
+ARG VERSION=dev
+ARG SCORING_CONFIG_VERSION=default
+LABEL org.opencontainers.image.version=$VERSION \
+      ai.pvuv.scoring-config-version=$SCORING_CONFIG_VERSION
 ENV NODE_ENV=production PORT=3000 SQLITE_PATH=/data/pvuv.sqlite
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules

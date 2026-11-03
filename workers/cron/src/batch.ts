@@ -65,18 +65,22 @@ interface Cluster {
 export async function runDailyBatch(env: Env): Promise<void> {
   const db = env.DB;
   const now = Date.now();
-  const end = now - SETTLE_LAG_MS;
+  const end = Math.min(now - SETTLE_LAG_MS, env.batchEnd ?? Infinity);
 
   const existing = await existingEventTables(db);
 
   // ---- 1. Welford profile fold over (profile_wm, end] — ATOMIC, then advance
   //         its own watermark immediately (the only non-idempotent step).
-  const pStart = Math.max((await readWm(db, PROFILE_WM_KEY)) ?? end - DAY_MS, end - 2 * DAY_MS);
-  if (end > pStart) {
-    const pTables = tablesFor(pStart, end, existing);
-    if (pTables.length) await updateProfiles(db, pTables, pStart, end);
-    await writeWm(db, PROFILE_WM_KEY, end);
-  }
+  const fold = async () => {
+    const pStart = Math.max((await readWm(db, PROFILE_WM_KEY)) ?? end - DAY_MS, end - 2 * DAY_MS);
+    if (end > pStart) {
+      const pTables = tablesFor(pStart, end, existing);
+      if (pTables.length) await updateProfiles(db, pTables, pStart, end);
+      await writeWm(db, PROFILE_WM_KEY, end);
+    }
+  };
+  if (env.runInTransaction) await env.runInTransaction(fold);
+  else await fold();
 
   // ---- cluster analysis over (cluster_wm, end]: all idempotent, so its
   //      watermark advances only at the very end and a failure is safely retried.

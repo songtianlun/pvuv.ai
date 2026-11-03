@@ -46,6 +46,18 @@ export async function consume(db: Database): Promise<number> {
   });
 }
 export async function scheduled(db: Database, now = new Date()) {
+  // Do not advance analysis watermarks past accepted but unconsumed work,
+  // including delayed retries. The consumer continues independently.
+  if (await db.prepare("SELECT 1 FROM pvuv_queue WHERE dead_at IS NULL LIMIT 1").first())
+    return false;
+  const env = {
+    DB: db.asD1(),
+    BLOCKLIST: new SQLiteKV(db, "blocklist").asKV(),
+    // Ingest accepts timestamps up to ten minutes in the past. Work arriving
+    // after the queue check must remain newer than this analysis boundary.
+    batchEnd: Date.now() - 15 * 60_000,
+    runInTransaction: (work: () => Promise<void>) => db.transaction(work),
+  };
   for (const [name, expression, due] of [
     [
       "hourly",
@@ -76,30 +88,29 @@ export async function scheduled(db: Database, now = new Date()) {
   ] as const) {
     if (due > now)
       due.setTime(due.getTime() - (name === "hourly" ? 3600e3 : 86400e3));
-    await db.transaction(async () => {
-      const last = await db
-        .prepare("SELECT last_run FROM pvuv_jobs WHERE name=?")
-        .bind(name)
-        .first<{ last_run: number }>();
-      if (last && last.last_run >= due.getTime()) return;
-      const pending: Promise<unknown>[] = [];
-      await cron.scheduled(
-        { cron: expression } as ScheduledController,
-        { DB: db.asD1(), BLOCKLIST: new SQLiteKV(db, "blocklist").asKV() },
-        {
-          waitUntil(p: Promise<unknown>) {
-            pending.push(p);
-          },
-        } as ExecutionContext,
-      );
-      await Promise.all(pending);
-      await db.run(
-        "INSERT INTO pvuv_jobs(name,last_run) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET last_run=excluded.last_run",
-        [name, due.getTime()],
-      );
-    });
+    const last = await db
+      .prepare("SELECT last_run FROM pvuv_jobs WHERE name=?")
+      .bind(name)
+      .first<{ last_run: number }>();
+    if (last && last.last_run >= due.getTime()) continue;
+    const pending: Promise<unknown>[] = [];
+    await cron.scheduled(
+      { cron: expression } as ScheduledController,
+      env,
+      {
+        waitUntil(p: Promise<unknown>) {
+          pending.push(p);
+        },
+      } as ExecutionContext,
+    );
+    await Promise.all(pending);
+    await db.run(
+      "INSERT INTO pvuv_jobs(name,last_run) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET last_run=excluded.last_run",
+      [name, due.getTime()],
+    );
   }
   await db.run("DELETE FROM pvuv_kv WHERE expires_at<?", [Date.now()]);
+  return true;
 }
 export function startJobs(db: Database) {
   let stopped = false;
@@ -116,12 +127,13 @@ export function startJobs(db: Database) {
   })();
   const cronLoop = (async () => {
     while (!stopped) {
+      let complete = false;
       try {
-        await scheduled(db);
+        complete = await scheduled(db);
       } catch (e) {
         console.error("scheduler", e);
       }
-      for (let i = 0; i < 30 && !stopped; i++)
+      for (let i = 0; i < (complete ? 30 : 1) && !stopped; i++)
         await new Promise((r) => setTimeout(r, 1000));
     }
   })();

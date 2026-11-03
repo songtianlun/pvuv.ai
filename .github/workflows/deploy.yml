@@ -1,4 +1,5 @@
-# Optional legacy Cloudflare deployment; manual only after Docker migration.
+# Legacy Cloudflare deployment is paused during the Docker migration.
+# To restore it intentionally, remove the job's `if: false` guard below.
 #
 # Secrets (repo settings → Secrets and variables → Actions):
 #   CLOUDFLARE_API_TOKEN  required
@@ -7,7 +8,7 @@
 #
 # Worker secrets (HMAC_KEY, ...) stay in Cloudflare and are not touched here.
 
-name: Deploy
+name: Cloudflare Deploy (Paused)
 
 on:
   workflow_dispatch:
@@ -23,6 +24,8 @@ permissions:
 
 jobs:
   deploy:
+    # Block even manual runs. Docker publishing is configured separately.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
