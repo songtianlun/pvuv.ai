@@ -15,6 +15,10 @@ import { runEdgePull } from './edge';
 export interface Env {
   DB: D1Database;
   BLOCKLIST: KVNamespace;
+  /** Standalone runtime: bound analysis behind all accepted client timestamps. */
+  batchEnd?: number;
+  /** Keep the non-idempotent profile fold and its watermark atomic. */
+  runInTransaction?: (work: () => Promise<void>) => Promise<void>;
 }
 
 export default {

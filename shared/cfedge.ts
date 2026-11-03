@@ -73,6 +73,7 @@ export async function listZones(token: string): Promise<CfZone[]> {
   for (let page = 1; page <= 5; page++) {
     const res = await fetch(`${CF_API}/zones?per_page=50&page=${page}`, {
       headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new CfEdgeError(`Cloudflare /zones: ${await upstreamText(res)}`, res.status);
     const data = (await res.json()) as {
@@ -118,6 +119,7 @@ async function graphql(token: string, query: string, variables: Record<string, u
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new CfEdgeError(`Cloudflare GraphQL: ${await upstreamText(res)}`, res.status);
   const body = (await res.json()) as {

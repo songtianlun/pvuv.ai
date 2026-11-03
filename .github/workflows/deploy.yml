@@ -1,4 +1,5 @@
-# Deploys to Cloudflare on every push to `my` (DEPLOY.md, "Automatic deployment").
+# Legacy Cloudflare deployment is paused during the Docker migration.
+# To restore it intentionally, remove the job's `if: false` guard below.
 #
 # Secrets (repo settings → Secrets and variables → Actions):
 #   CLOUDFLARE_API_TOKEN  required
@@ -7,14 +8,9 @@
 #
 # Worker secrets (HMAC_KEY, ...) stay in Cloudflare and are not touched here.
 
-name: Deploy
+name: Cloudflare Deploy (Paused)
 
 on:
-  push:
-    branches: [my]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   workflow_dispatch:
 
 # Never run two deploys at once, and never cancel one halfway through a
@@ -28,6 +24,8 @@ permissions:
 
 jobs:
   deploy:
+    # Block even manual runs. Docker publishing is configured separately.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

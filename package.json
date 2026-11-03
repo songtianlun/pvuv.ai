@@ -29,10 +29,16 @@
     "typecheck": "tsc --noEmit && tsc -p sdk --noEmit",
     "dev:proxy": "wrangler dev -c workers/proxy/wrangler.toml",
     "deploy:proxy": "wrangler deploy -c workers/proxy/wrangler.toml",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "build:server": "npm run build:sdk && node server/build.mjs",
+    "dev:server": "npm run build:server && node --env-file-if-exists=.env dist/server/index.mjs",
+    "start:server": "node --env-file-if-exists=.env dist/server/index.mjs",
+    "typecheck:server": "tsc -p server --noEmit",
+    "test:server": "npm run build:server && esbuild server/tests/*.test.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/server --out-extension:.js=.mjs && node --test dist/server/*.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260101.0",
+    "@types/node": "^22.20.5",
     "esbuild": "^0.25.0",
     "smol-toml": "^1.3.0",
     "typescript": "^5.7.0",

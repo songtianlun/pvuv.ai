@@ -677,13 +677,13 @@ Point a test page's snippet at `data-api="http://localhost:8788"`.
 
 ## Automatic deployment (GitHub Actions)
 
-[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) deploys every
-push to the `my` branch, skipping pushes that only touch Markdown or `docs/`.
-Change `branches:` to deploy from another branch. **Actions → Deploy → Run
-workflow** starts one by hand. It runs the same steps as the manual update
-below: typecheck, build `f.js` into the console assets, apply migrations, then
-`deploy:all`. A failed typecheck or migration stops the run before any Worker
-is deployed. The proxy Worker is not included.
+The Cloudflare deployment job in [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml)
+is paused. There is no push trigger, and manual runs also skip deployment because
+of the job's `if: false` guard. Docker publishing uses a separate workflow; see the
+[Docker deployment guide](./DEPLOY.docker.zh-CN.md).
+To restore Cloudflare deployment intentionally, remove the pause guard and run
+the workflow manually. It then typechecks, builds the SDK, applies D1 migrations,
+and runs `deploy:all`. The proxy Worker is not included.
 
 The deploying branch must hold your real ids in the `wrangler.toml` files.
 

@@ -1,0 +1,17 @@
+services:
+  app:
+    image: ${PVUV_IMAGE:-pvuv:local}
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      SQLITE_PATH: /data/pvuv.sqlite
+      PORT: "3000"
+    volumes:
+      - pvuv-data:/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+    stop_grace_period: 35s
+volumes:
+  pvuv-data:

@@ -602,11 +602,11 @@ curl "http://localhost:8791/__scheduled?cron=5+*+*+*+*"
 
 ## 自动部署（GitHub Actions）
 
-[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) 会在每次推送到 `my`
-分支时部署，只改动 Markdown 或 `docs/` 的推送会跳过。想换分支就改 `branches:`。在
-**Actions → Deploy → Run workflow** 可以手动触发。它执行的步骤和下面的手动更新相同：
-类型检查、把 `f.js` 构建进 console 资源、应用迁移，然后运行 `deploy:all`。类型检查或
-迁移失败时，运行会在部署任何 Worker 之前停止。反代 Worker 不在其中。
+[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) 中的 Cloudflare 部署任务已暂停，
+没有自动推送触发器，手动触发也会因 `if: false` 跳过。当前使用独立的 Docker 构建发布流程，
+见 [Docker 部署说明](./DEPLOY.docker.zh-CN.md)。
+若以后需要恢复 Cloudflare 部署，请显式移除该任务的暂停条件，再手动运行工作流。
+恢复后会执行类型检查、构建 SDK、应用 D1 迁移及 `deploy:all`；反代 Worker 不在其中。
 
 用于部署的分支必须在各 `wrangler.toml` 里保存真实 ID。
 

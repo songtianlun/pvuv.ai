@@ -28,6 +28,8 @@ import { classifyChannel } from '../../../shared/channel';
 
 export interface Env {
   DB: D1Database;
+  /** Transactional runtimes may roll back partition creation with a batch. */
+  ENSURE_SCHEMA_EACH_BATCH?: boolean;
 }
 
 /** Bounce definition (§9.3, GA4-style inverse): engaged = 2nd pageview OR
@@ -69,7 +71,7 @@ export default {
       // 1. ensure monthly partitions exist
       const months = [...new Set(rows.map((r) => monthSuffix(r.ts)))];
       for (const suffix of months) {
-        if (ensuredMonths.has(suffix)) continue;
+        if (!env.ENSURE_SCHEMA_EACH_BATCH && ensuredMonths.has(suffix)) continue;
         await env.DB.batch(eventsTableDDL(suffix).map((sql) => env.DB.prepare(sql)));
         // A table that already existed is NOT recreated by the IF NOT EXISTS
         // above, so a month created before a later migration would still be
